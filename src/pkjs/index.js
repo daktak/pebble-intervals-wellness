@@ -1,49 +1,109 @@
-var CONFIG_PAGE = [
-  "<!DOCTYPE html><html><head>",
-  '<meta name="viewport" content="width=device-width,initial-scale=1">',
-  "<style>",
-  "body{background:#1a1a1a;color:#fff;font-family:sans-serif;padding:20px;margin:0}",
-  "h2{margin-top:0}",
-  "button{display:block;width:100%;padding:14px;margin:8px 0;border:none;",
-  "border-radius:8px;font-size:16px;cursor:pointer;font-weight:bold}",
-  "</style></head><body>",
-  "<h2>Time Colour</h2>",
-  '<button style="background:#fff;color:#000" onclick="send(0)">White</button>',
-  '<button style="background:#0f0;color:#000" onclick="send(1)">Green</button>',
-  '<button style="background:#ff0;color:#000" onclick="send(2)">Yellow</button>',
-  '<button style="background:#0ff;color:#000" onclick="send(3)">Cyan</button>',
-  '<button style="background:#f90;color:#000" onclick="send(4)">Orange</button>',
-  "<script>",
-  "function send(v){",
-  '  location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify({colorIndex:v}));',
-  "}",
-  "</script></body></html>"
-].join("");
+var Clay = require("@rebble/clay");
+var clayConfig = require("./config.json");
+var clay = new Clay(clayConfig);
+var base64 = require("base-64");
 
-Pebble.addEventListener("ready", function() {
-  console.log("JS ready");
-});
+function getSettings() {
+  try {
+    var raw = localStorage.getItem("clay-settings");
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return {};
+}
 
-Pebble.addEventListener("showConfiguration", function() {
-  Pebble.openURL("data:text/html," + encodeURIComponent(CONFIG_PAGE));
-});
+function effApiKey() {
+  var s = getSettings();
+  if (s.API_KEY && s.API_KEY !== "") return s.API_KEY;
+  return localStorage.getItem("icu_api_key") || "";
+}
 
-Pebble.addEventListener("webviewclosed", function(e) {
-  if (!e.response || e.response === "CANCELLED") {
+function sendStatus(msg) {
+  var s = String(msg).slice(0, 60);
+  console.log("sendStatus " + s);
+  Pebble.sendAppMessage({ STATUS: s }, function() { console.log("status ok"); }, function(e) { console.log("status fail " + e); });
+}
+
+function pushWellness(records) {
+  var key = effApiKey();
+  var aid = "0";
+  if (!key) {
+    sendStatus("ERR no API key");
     return;
   }
+  var url = "https://intervals.icu/api/v1/athlete/" + aid + "/wellness-bulk";
+  console.log("PUT wellness-bulk " + url + " n=" + records.length + " " + JSON.stringify(records).slice(0, 300));
+  var xhr = new XMLHttpRequest();
+  xhr.open("PUT", url, true);
+  try { xhr.setRequestHeader("Content-Type", "application/json"); } catch (e) {}
+  try { xhr.setRequestHeader("Authorization", "Basic " + base64.encode("API_KEY:" + key)); } catch (e) { console.log("auth err " + e); }
+  xhr.onload = function() {
+    console.log("wellness resp " + xhr.status + " " + xhr.responseText.slice(0, 500));
+    if (xhr.status >= 200 && xhr.status < 300) {
+      var label = records.length === 1 ? records[0].id : records[0].id + "+" + records[records.length - 1].id;
+      sendStatus("OK " + label);
+    } else {
+      var err = "ERR " + xhr.status;
+      try {
+        var j = JSON.parse(xhr.responseText);
+        if (j.error) err = "ERR " + String(j.error).slice(0, 30);
+        else if (j.message) err = "ERR " + String(j.message).slice(0, 30);
+      } catch (e2) {}
+      if (xhr.status === 401) err = "ERR bad key";
+      sendStatus(err);
+    }
+  };
+  xhr.onerror = function() { console.log("wellness net err"); sendStatus("ERR net"); };
+  xhr.send(JSON.stringify(records));
+}
+
+Pebble.addEventListener("ready", function() {
+  console.log("JS ready wellness " + localStorage.getItem("clay-settings"));
   try {
-    var config = JSON.parse(decodeURIComponent(e.response));
-    Pebble.sendAppMessage(
-      { COLOR_INDEX: config.colorIndex },
-      function() {
-        console.log("Settings sent");
-      },
-      function(err) {
-        console.log("Settings error: " + err);
-      }
-    );
-  } catch (ex) {
-    console.log("Config parse error: " + ex);
+    var s = getSettings();
+    var h = parseInt(s.SYNC_HOUR, 10);
+    var m = parseInt(s.SYNC_MINUTE, 10);
+    if (!isNaN(h) && !isNaN(m)) {
+      console.log("pushing sync time " + h + ":" + m);
+      Pebble.sendAppMessage({ SYNC_HOUR: h, SYNC_MINUTE: m }, function() { console.log("sync time push ok"); }, function(e) { console.log("sync time push fail " + e); });
+    }
+    var k = s.API_KEY;
+    if (k) localStorage.setItem("icu_api_key", k);
+  } catch (e) { console.log("ready push err " + e); }
+});
+
+Pebble.addEventListener("appmessage", function(e) {
+  console.log("appmessage " + JSON.stringify(e.payload));
+  var p = e.payload;
+  if (typeof p.API_KEY !== "undefined") localStorage.setItem("icu_api_key", p.API_KEY);
+  if (typeof p.SYNC_HOUR !== "undefined") localStorage.setItem("sync_hour", String(p.SYNC_HOUR));
+  if (typeof p.SYNC_MINUTE !== "undefined") localStorage.setItem("sync_minute", String(p.SYNC_MINUTE));
+  var yDate = p.Y_DATE;
+  var tDate = p.T_DATE;
+  var hasY = typeof yDate !== "undefined" && yDate;
+  var hasT = typeof tDate !== "undefined" && tDate;
+  if (hasY || hasT) {
+    var records = [];
+    if (hasY) {
+      var r = { id: yDate };
+      if (typeof p.Y_STEPS !== "undefined") r.steps = parseInt(p.Y_STEPS, 10);
+      if (typeof p.Y_SLEEP !== "undefined") r.sleepSecs = parseInt(p.Y_SLEEP, 10);
+      if (typeof p.Y_RHR !== "undefined" && parseInt(p.Y_RHR, 10) > 0) r.restingHR = parseInt(p.Y_RHR, 10);
+      if (typeof p.Y_SHR !== "undefined" && parseInt(p.Y_SHR, 10) > 0) r.avgSleepingHR = parseInt(p.Y_SHR, 10);
+      records.push(r);
+    }
+    if (hasT) {
+      var r2 = { id: tDate };
+      if (typeof p.T_STEPS !== "undefined") r2.steps = parseInt(p.T_STEPS, 10);
+      if (typeof p.T_SLEEP !== "undefined") r2.sleepSecs = parseInt(p.T_SLEEP, 10);
+      if (typeof p.T_RHR !== "undefined" && parseInt(p.T_RHR, 10) > 0) r2.restingHR = parseInt(p.T_RHR, 10);
+      if (typeof p.T_SHR !== "undefined" && parseInt(p.T_SHR, 10) > 0) r2.avgSleepingHR = parseInt(p.T_SHR, 10);
+      records.push(r2);
+    }
+    if (records.length === 0) sendStatus("ERR no data");
+    else pushWellness(records);
+    return;
+  }
+  if (typeof p.CMD !== "undefined") {
+    if (p.CMD === 1) sendStatus("READY");
   }
 });

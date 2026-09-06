@@ -1,31 +1,55 @@
 {
-  "name": "my-pebble-app",
-  "author": "Your Name",
+  "name": "pebble-intervals-wellness",
+  "author": "daktak",
   "version": "1.0.0",
   "keywords": [
-    "pebble-app"
+    "pebble-app",
+    "intervals",
+    "wellness",
+    "health"
   ],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@rebble/clay": "^1.0.10",
+    "base-64": "^1.0.0"
+  },
   "pebble": {
-    "displayName": "My App",
-    "shortName": "My App",
-    "longName": "My Pebble App",
-    "uuid": "e1ac2ab4-140e-4f98-a78a-4872c50b738d",
+    "displayName": "Intervals Wellness",
+    "shortName": "Wellness",
+    "longName": "Intervals.icu Wellness",
+    "uuid": "c75eaff7-df43-4dad-ac8a-23a7b6dd47be",
     "sdkVersion": "3",
-    "enableMultiJS": false,
+    "enableMultiJS": true,
     "targetPlatforms": [
       "basalt",
+      "chalk",
+      "diorite",
       "emery"
     ],
     "watchapp": {
-      "watchface": true
+      "watchface": false
     },
     "capabilities": [
-      "configurable"
+      "configurable",
+      "health",
+      "wakeup"
     ],
     "messageKeys": [
-      "COLOR_INDEX"
+      "Y_STEPS",
+      "Y_SLEEP",
+      "Y_RHR",
+      "Y_SHR",
+      "Y_DATE",
+      "T_STEPS",
+      "T_SLEEP",
+      "T_RHR",
+      "T_SHR",
+      "T_DATE",
+      "CMD",
+      "STATUS",
+      "API_KEY",
+      "SYNC_HOUR",
+      "SYNC_MINUTE"
     ],
     "resources": {
       "media": [
