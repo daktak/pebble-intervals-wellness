@@ -11,12 +11,14 @@
 #define KEY_QUEUED_Y_RHR 23
 #define KEY_QUEUED_Y_SHR 24
 #define KEY_QUEUED_Y_SCORE 30
+#define KEY_QUEUED_Y_QUALITY 32
 #define KEY_QUEUED_T_DATE 25
 #define KEY_QUEUED_T_STEPS 26
 #define KEY_QUEUED_T_SLEEP 27
 #define KEY_QUEUED_T_RHR 28
 #define KEY_QUEUED_T_SHR 29
 #define KEY_QUEUED_T_SCORE 31
+#define KEY_QUEUED_T_QUALITY 33
 
 static Window *s_window;
 static TextLayer *s_time_layer;
@@ -91,12 +93,21 @@ static int calc_sleep_score(int total, int restful, int rhr, int shr) {
   return score;
 }
 
+static int calc_sleep_quality(int score) {
+  if (score >= 90) return 1;
+  if (score >= 80) return 2;
+  if (score >= 60) return 3;
+  if (score > 0) return 4;
+  return 0;
+}
+
 typedef struct {
   int steps;
   int sleep;
   int rhr;
   int shr;
   int sleepScore;
+  int sleepQuality;
   char date[12];
 } WellnessDay;
 
@@ -132,11 +143,13 @@ static void update_display(void) {
       s_cached_y.steps = persist_read_int(KEY_QUEUED_Y_STEPS);
       s_cached_y.sleep = persist_read_int(KEY_QUEUED_Y_SLEEP);
       if (persist_exists(KEY_QUEUED_Y_SCORE)) s_cached_y.sleepScore = persist_read_int(KEY_QUEUED_Y_SCORE);
+      if (persist_exists(KEY_QUEUED_Y_QUALITY)) s_cached_y.sleepQuality = persist_read_int(KEY_QUEUED_Y_QUALITY);
       if (persist_exists(KEY_QUEUED_T_DATE)) {
         persist_read_string(KEY_QUEUED_T_DATE, s_cached_t.date, sizeof(s_cached_t.date));
         s_cached_t.rhr = persist_read_int(KEY_QUEUED_T_RHR);
         s_cached_t.shr = persist_read_int(KEY_QUEUED_T_SHR);
         if (persist_exists(KEY_QUEUED_T_SCORE)) s_cached_t.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
+        if (persist_exists(KEY_QUEUED_T_QUALITY)) s_cached_t.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
       }
       s_has_cache = true;
     } else {
@@ -222,7 +235,8 @@ static int query_day(time_t start, time_t end, WellnessDay *out) {
     }
     APP_LOG(APP_LOG_LEVEL_DEBUG, "query %s hr_min %d avg %d cnt %d restful %d", out->date, out->rhr, out->shr, hr_count, restful);
     out->sleepScore = calc_sleep_score(out->sleep, restful, out->rhr, out->shr);
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "score %s %d dur %d rest %d", out->date, out->sleepScore, out->sleep, restful);
+    out->sleepQuality = calc_sleep_quality(out->sleepScore);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "score %s %d qual %d dur %d rest %d", out->date, out->sleepScore, out->sleepQuality, out->sleep, restful);
   }
 #else
   (void)start; (void)end;
@@ -242,12 +256,14 @@ static void send_queued(void) {
   if (persist_exists(KEY_QUEUED_Y_RHR)) y.rhr = persist_read_int(KEY_QUEUED_Y_RHR);
   if (persist_exists(KEY_QUEUED_Y_SHR)) y.shr = persist_read_int(KEY_QUEUED_Y_SHR);
   if (persist_exists(KEY_QUEUED_Y_SCORE)) y.sleepScore = persist_read_int(KEY_QUEUED_Y_SCORE);
+  if (persist_exists(KEY_QUEUED_Y_QUALITY)) y.sleepQuality = persist_read_int(KEY_QUEUED_Y_QUALITY);
   if (persist_exists(KEY_QUEUED_T_DATE)) persist_read_string(KEY_QUEUED_T_DATE, tt.date, sizeof(tt.date));
   if (persist_exists(KEY_QUEUED_T_STEPS)) tt.steps = persist_read_int(KEY_QUEUED_T_STEPS);
   if (persist_exists(KEY_QUEUED_T_SLEEP)) tt.sleep = persist_read_int(KEY_QUEUED_T_SLEEP);
   if (persist_exists(KEY_QUEUED_T_RHR)) tt.rhr = persist_read_int(KEY_QUEUED_T_RHR);
   if (persist_exists(KEY_QUEUED_T_SHR)) tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
   if (persist_exists(KEY_QUEUED_T_SCORE)) tt.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
+  if (persist_exists(KEY_QUEUED_T_QUALITY)) tt.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
   if (y.date[0] == '\0' && tt.date[0] == '\0') return;
   s_cached_y = y;
   s_cached_t = tt;
@@ -264,6 +280,7 @@ static void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_Y_RHR, y->rhr);
     persist_write_int(KEY_QUEUED_Y_SHR, y->shr);
     persist_write_int(KEY_QUEUED_Y_SCORE, y->sleepScore);
+    persist_write_int(KEY_QUEUED_Y_QUALITY, y->sleepQuality);
   } else {
     persist_delete(KEY_QUEUED_Y_DATE);
   }
@@ -274,6 +291,7 @@ static void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_T_RHR, t->rhr);
     persist_write_int(KEY_QUEUED_T_SHR, t->shr);
     persist_write_int(KEY_QUEUED_T_SCORE, t->sleepScore);
+    persist_write_int(KEY_QUEUED_T_QUALITY, t->sleepQuality);
   } else {
     persist_delete(KEY_QUEUED_T_DATE);
   }
@@ -294,6 +312,7 @@ static void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_Y_RHR, &y->rhr, sizeof(y->rhr), true);
     dict_write_int(out, MESSAGE_KEY_Y_SHR, &y->shr, sizeof(y->shr), true);
     dict_write_int(out, MESSAGE_KEY_Y_SCORE, &y->sleepScore, sizeof(y->sleepScore), true);
+    dict_write_int(out, MESSAGE_KEY_Y_QUALITY, &y->sleepQuality, sizeof(y->sleepQuality), true);
     dict_write_cstring(out, MESSAGE_KEY_Y_DATE, y->date);
   }
   if (t) {
@@ -302,6 +321,7 @@ static void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_T_RHR, &t->rhr, sizeof(t->rhr), true);
     dict_write_int(out, MESSAGE_KEY_T_SHR, &t->shr, sizeof(t->shr), true);
     dict_write_int(out, MESSAGE_KEY_T_SCORE, &t->sleepScore, sizeof(t->sleepScore), true);
+    dict_write_int(out, MESSAGE_KEY_T_QUALITY, &t->sleepQuality, sizeof(t->sleepQuality), true);
     dict_write_cstring(out, MESSAGE_KEY_T_DATE, t->date);
   }
   int32_t cmd = 0;
