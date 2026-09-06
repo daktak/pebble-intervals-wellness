@@ -142,17 +142,45 @@ static int query_day(time_t start, time_t end, WellnessDay *out) {
   if (m & HealthServiceAccessibilityMaskAvailable) out->steps = (int)health_service_sum(HealthMetricStepCount, start, end);
   m = health_service_metric_accessible(HealthMetricSleepSeconds, start, end);
   if (m & HealthServiceAccessibilityMaskAvailable) out->sleep = (int)health_service_sum(HealthMetricSleepSeconds, start, end);
-  m = health_service_metric_accessible(HealthMetricHeartRateBPM, start, end);
-  if (m & HealthServiceAccessibilityMaskAvailable) {
-    int rhr = (int)health_service_aggregate_averaged(HealthMetricHeartRateBPM, start, end, HealthAggregationMin, HealthServiceTimeScopeOnce);
-    int shr = (int)health_service_aggregate_averaged(HealthMetricHeartRateBPM, start, end, HealthAggregationAvg, HealthServiceTimeScopeOnce);
-    if (rhr > 0 && rhr < 255) out->rhr = rhr;
-    if (shr > 0 && shr < 255) out->shr = shr;
-    if (out->rhr == 0 && out->shr != 0) out->rhr = out->shr;
-    if (out->shr == 0) {
-      int cur = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
-      if (cur > 0 && cur < 255) out->shr = cur;
+  {
+    int hr_min = 255;
+    int hr_sum = 0;
+    int hr_count = 0;
+    time_t cur = start;
+    while (cur < end) {
+      time_t chunk_start = cur;
+      time_t chunk_end = cur + 3600;
+      if (chunk_end > end) chunk_end = end;
+      HealthMinuteData buf[60];
+      time_t s = chunk_start;
+      time_t e = chunk_end;
+      uint32_t n = health_service_get_minute_history(buf, 60, &s, &e);
+      for (uint32_t i = 0; i < n; i++) {
+        if (buf[i].is_invalid) continue;
+        uint8_t hr = buf[i].heart_rate_bpm;
+        if (hr == 0 || hr >= 255) continue;
+        if ((int)hr < hr_min) hr_min = hr;
+        hr_sum += hr;
+        hr_count++;
+      }
+      if (n == 0) cur += 3600;
+      else cur = e;
+      if (cur <= chunk_start) cur = chunk_start + 60;
     }
+    if (hr_count > 0) {
+      out->rhr = hr_min;
+      out->shr = (hr_sum + hr_count / 2) / hr_count;
+    } else {
+      time_t now = time(NULL);
+      if (end >= now - 3600 && end <= now + 60) {
+        int cur = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
+        if (cur > 0 && cur < 255) {
+          out->shr = cur;
+          out->rhr = cur;
+        }
+      }
+    }
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "query %s hr_min %d avg %d cnt %d", out->date, out->rhr, out->shr, hr_count);
   }
 #else
   (void)start; (void)end;
