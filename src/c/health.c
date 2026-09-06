@@ -149,6 +149,16 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
   int restful = 0;
   m = health_service_metric_accessible(HealthMetricSleepRestfulSeconds, start, end);
   if (m & HealthServiceAccessibilityMaskAvailable) restful = (int)health_service_sum(HealthMetricSleepRestfulSeconds, start, end);
+  out->hrv = 0; out->hrvSDNN = 0;
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  if (persist_exists(KEY_HRV_NIGHT_RMSSD) && persist_exists(KEY_HRV_NIGHT_DATE)) {
+    char hrv_date[12]; persist_read_string(KEY_HRV_NIGHT_DATE, hrv_date, sizeof(hrv_date));
+    if (strcmp(hrv_date, out->date) == 0) {
+      out->hrv = persist_read_int(KEY_HRV_NIGHT_RMSSD);
+      out->hrvSDNN = persist_read_int(KEY_HRV_NIGHT_SDNN);
+    }
+  }
+#endif
   bool hrSensor = has_hr_sensor();
   if (!hrSensor) {
     out->rhr = 0;
