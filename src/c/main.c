@@ -20,12 +20,14 @@ static Window *s_window;
 static TextLayer *s_time_layer;
 static TextLayer *s_steps_layer;
 static TextLayer *s_sleep_layer;
-static TextLayer *s_hr_layer;
+static TextLayer *s_rhr_layer;
+static TextLayer *s_shr_layer;
 static TextLayer *s_status_layer;
 static char s_time_buf[16];
 static char s_steps_buf[32];
 static char s_sleep_buf[32];
-static char s_hr_buf[32];
+static char s_rhr_buf[32];
+static char s_shr_buf[32];
 static char s_status_buf[64];
 static char s_y_date[12];
 static char s_t_date[12];
@@ -59,11 +61,26 @@ static void format_sleep(int secs, char *buf, size_t len) {
   else snprintf(buf, len, "%dh%02dm sleep", secs / 3600, (secs % 3600) / 60);
 }
 
+typedef struct {
+  int steps;
+  int sleep;
+  int rhr;
+  int shr;
+  char date[12];
+} WellnessDay;
+
+static WellnessDay s_cached_y;
+static WellnessDay s_cached_t;
+static bool s_has_cache = false;
+
+static int query_day(time_t start, time_t end, WellnessDay *out);
+
 static void update_display(void) {
   if (!has_health()) {
     text_layer_set_text(s_steps_layer, "No Health");
     text_layer_set_text(s_sleep_layer, "");
-    text_layer_set_text(s_hr_layer, "");
+    text_layer_set_text(s_rhr_layer, "");
+    text_layer_set_text(s_shr_layer, "");
     return;
   }
   int steps = get_steps_today();
@@ -75,12 +92,34 @@ static void update_display(void) {
   if (sm & HealthServiceAccessibilityMaskAvailable) sleep = (int)health_service_sum_today(HealthMetricSleepSeconds);
   format_sleep(sleep, s_sleep_buf, sizeof(s_sleep_buf));
   text_layer_set_text(s_sleep_layer, s_sleep_buf);
-  int hr = 0;
-  HealthServiceAccessibilityMask hm = health_service_metric_accessible(HealthMetricHeartRateBPM, time(NULL) - 3600, time(NULL));
-  if (hm & HealthServiceAccessibilityMaskAvailable) hr = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
-  if (hr > 0) snprintf(s_hr_buf, sizeof(s_hr_buf), "%d bpm", hr);
-  else snprintf(s_hr_buf, sizeof(s_hr_buf), "-- bpm");
-  text_layer_set_text(s_hr_layer, s_hr_buf);
+  if (!s_has_cache) {
+    if (persist_exists(KEY_QUEUED_Y_DATE)) {
+      persist_read_string(KEY_QUEUED_Y_DATE, s_cached_y.date, sizeof(s_cached_y.date));
+      s_cached_y.rhr = persist_read_int(KEY_QUEUED_Y_RHR);
+      s_cached_y.shr = persist_read_int(KEY_QUEUED_Y_SHR);
+      s_cached_y.steps = persist_read_int(KEY_QUEUED_Y_STEPS);
+      s_cached_y.sleep = persist_read_int(KEY_QUEUED_Y_SLEEP);
+      if (persist_exists(KEY_QUEUED_T_DATE)) {
+        persist_read_string(KEY_QUEUED_T_DATE, s_cached_t.date, sizeof(s_cached_t.date));
+        s_cached_t.rhr = persist_read_int(KEY_QUEUED_T_RHR);
+        s_cached_t.shr = persist_read_int(KEY_QUEUED_T_SHR);
+      }
+      s_has_cache = true;
+    } else {
+      WellnessDay y = {0};
+      time_t today_start = time_start_of_today();
+      query_day(today_start - 86400, today_start - 1, &y);
+      s_cached_y = y;
+      s_cached_t = (WellnessDay){0};
+      s_has_cache = true;
+    }
+  }
+  if (s_cached_y.rhr > 0) snprintf(s_rhr_buf, sizeof(s_rhr_buf), "Resting HR %d bpm", s_cached_y.rhr);
+  else snprintf(s_rhr_buf, sizeof(s_rhr_buf), "Resting HR --");
+  if (s_cached_y.shr > 0) snprintf(s_shr_buf, sizeof(s_shr_buf), "Avg Sleep HR %d bpm", s_cached_y.shr);
+  else snprintf(s_shr_buf, sizeof(s_shr_buf), "Avg Sleep HR --");
+  text_layer_set_text(s_rhr_layer, s_rhr_buf);
+  text_layer_set_text(s_shr_layer, s_shr_buf);
 #endif
 }
 
@@ -93,14 +132,6 @@ static void set_status(const char *msg) {
 static void exit_timer_callback(void *data) {
   window_stack_pop_all(true);
 }
-
-typedef struct {
-  int steps;
-  int sleep;
-  int rhr;
-  int shr;
-  char date[12];
-} WellnessDay;
 
 static int query_day(time_t start, time_t end, WellnessDay *out) {
   memset(out, 0, sizeof(*out));
@@ -146,6 +177,9 @@ static void send_queued(void) {
   if (persist_exists(KEY_QUEUED_T_RHR)) tt.rhr = persist_read_int(KEY_QUEUED_T_RHR);
   if (persist_exists(KEY_QUEUED_T_SHR)) tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
   if (y.date[0] == '\0' && tt.date[0] == '\0') return;
+  s_cached_y = y;
+  s_cached_t = tt;
+  s_has_cache = true;
   APP_LOG(APP_LOG_LEVEL_DEBUG, "retry queued y %s %d t %s %d", y.date, y.steps, tt.date, tt.steps);
   send_wellness(y.date[0] ? &y : NULL, tt.date[0] ? &tt : NULL);
 }
@@ -270,8 +304,12 @@ static void try_daily_sync(bool force) {
   WellnessDay tt = {0};
   query_day(y0, y1, &y);
   query_day(today_start, now, &tt);
+  s_cached_y = y;
+  s_cached_t = tt;
+  s_has_cache = true;
   strncpy(s_y_date, y.date, sizeof(s_y_date));
   strncpy(s_t_date, tt.date, sizeof(s_t_date));
+  if (s_rhr_layer) update_display();
   if (!force && y.date[0] && is_already_synced(y.date)) {
     if (tt.date[0]) {
       WellnessDay *py = NULL;
@@ -402,12 +440,18 @@ static void window_load(Window *window) {
   text_layer_set_font(s_sleep_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
   text_layer_set_text_alignment(s_sleep_layer, GTextAlignmentCenter);
   layer_add_child(root, text_layer_get_layer(s_sleep_layer));
-  s_hr_layer = text_layer_create(GRect(0, 74, w, 18));
-  text_layer_set_background_color(s_hr_layer, GColorClear);
-  text_layer_set_text_color(s_hr_layer, GColorLightGray);
-  text_layer_set_font(s_hr_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
-  text_layer_set_text_alignment(s_hr_layer, GTextAlignmentCenter);
-  layer_add_child(root, text_layer_get_layer(s_hr_layer));
+  s_rhr_layer = text_layer_create(GRect(0, 74, w, 18));
+  text_layer_set_background_color(s_rhr_layer, GColorClear);
+  text_layer_set_text_color(s_rhr_layer, GColorLightGray);
+  text_layer_set_font(s_rhr_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_text_alignment(s_rhr_layer, GTextAlignmentCenter);
+  layer_add_child(root, text_layer_get_layer(s_rhr_layer));
+  s_shr_layer = text_layer_create(GRect(0, 92, w, 18));
+  text_layer_set_background_color(s_shr_layer, GColorClear);
+  text_layer_set_text_color(s_shr_layer, GColorLightGray);
+  text_layer_set_font(s_shr_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_text_alignment(s_shr_layer, GTextAlignmentCenter);
+  layer_add_child(root, text_layer_get_layer(s_shr_layer));
   s_status_layer = text_layer_create(GRect(5, bounds.size.h - 42, bounds.size.w - 10, 18));
   text_layer_set_background_color(s_status_layer, GColorClear);
   text_layer_set_text_color(s_status_layer, GColorLightGray);
@@ -455,7 +499,8 @@ static void window_unload(Window *window) {
   text_layer_destroy(s_time_layer);
   text_layer_destroy(s_steps_layer);
   text_layer_destroy(s_sleep_layer);
-  text_layer_destroy(s_hr_layer);
+  text_layer_destroy(s_rhr_layer);
+  text_layer_destroy(s_shr_layer);
   text_layer_destroy(s_status_layer);
 }
 
