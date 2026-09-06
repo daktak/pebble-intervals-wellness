@@ -9,7 +9,7 @@
 #define KEY_HRV_NIGHT_DATE 46
 
 #define PPI_BUF_SIZE 256
-#define BURST_BUF_SIZE 40
+#define BURST_BUF_SIZE 200
 
 static bool s_hrv_sampling = false;
 static uint16_t s_ppi_buf[PPI_BUF_SIZE];
@@ -40,17 +40,7 @@ static bool hrv_window_active(void) {
 }
 
 static bool duty_active(void) {
-  if (!hrv_window_active()) return false;
-  time_t now = time(NULL);
-  struct tm *t = localtime(&now);
-  int mins = t->tm_hour * 60 + t->tm_min;
-  int sh = 22; int sm = 0;
-  if (persist_exists(KEY_HRV_START_HOUR)) sh = persist_read_int(KEY_HRV_START_HOUR);
-  if (persist_exists(KEY_HRV_START_MINUTE)) sm = persist_read_int(KEY_HRV_START_MINUTE);
-  int start = sh * 60 + sm;
-  int elapsed = mins - start;
-  if (elapsed < 0) elapsed += 1440;
-  return (elapsed % 15) < 3;
+  return hrv_window_active();
 }
 
 static void format_date(time_t t, char *buf, size_t len) {
@@ -65,7 +55,7 @@ static void calc_rmssd_sdnn(uint16_t *buf, int n, int *out_rmssd, int *out_sdnn)
   int valid_diffs = 0;
   for (int i = 1; i < n; i++) {
     int d = (int)buf[i] - (int)buf[i-1];
-    if (d < -300 || d > 300) continue;
+    if (d < -500 || d > 500) continue;
     sum_diff_sq += d * d;
     valid_diffs++;
   }
@@ -88,10 +78,10 @@ static void calc_rmssd_sdnn(uint16_t *buf, int n, int *out_rmssd, int *out_sdnn)
 }
 
 static void burst_end(void) {
-  if (s_ppi_cnt < 5) { s_ppi_cnt = 0; return; }
+  if (s_ppi_cnt < 2) { s_ppi_cnt = 0; return; }
   int rmssd, sdnn;
   calc_rmssd_sdnn(s_ppi_buf, s_ppi_cnt, &rmssd, &sdnn);
-  if (rmssd > 0 && sdnn > 0 && s_burst_cnt < BURST_BUF_SIZE) {
+  if (rmssd > 0 && s_burst_cnt < BURST_BUF_SIZE) {
     s_burst_rmssd[s_burst_cnt] = rmssd;
     s_burst_sdnn[s_burst_cnt] = sdnn;
     s_burst_cnt++;
@@ -119,7 +109,7 @@ static void night_end(void) {
 static void hrv_event_handler(HealthEventType event, void *ctx) {
   if (event == HealthEventHRVUpdate) {
     uint16_t ppi = health_service_peek_hrv_ppi_ms();
-    if (ppi > 300 && ppi < 2000 && s_ppi_cnt < PPI_BUF_SIZE) {
+    if (ppi > 250 && ppi < 2200 && s_ppi_cnt < PPI_BUF_SIZE) {
       s_ppi_buf[s_ppi_cnt++] = ppi;
     }
   }
@@ -127,8 +117,7 @@ static void hrv_event_handler(HealthEventType event, void *ctx) {
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   bool active = hrv_window_active();
-  bool duty = duty_active();
-  bool should_sample = active && duty;
+  bool should_sample = active;
   if (should_sample && !s_hrv_sampling) {
     health_service_set_hrv_sample_period(10);
     s_hrv_sampling = true;
@@ -138,7 +127,12 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     s_hrv_sampling = false;
     burst_end();
   }
+  if (should_sample && s_hrv_sampling && s_ppi_cnt >= 150) {
+    burst_end();
+    s_ppi_cnt = 0;
+  }
   if (!active && s_was_active) {
+    if (s_ppi_cnt > 0) burst_end();
     night_end();
   }
   s_was_active = active;
