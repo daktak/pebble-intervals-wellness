@@ -16,6 +16,17 @@ bool has_health(void) {
 #endif
 }
 
+bool has_hr_sensor(void) {
+#if !defined(PBL_HEALTH)
+  return false;
+#else
+  time_t n = time(NULL);
+  HealthServiceAccessibilityMask m = health_service_metric_aggregate_averaged_accessible(HealthMetricHeartRateBPM, n, n, HealthAggregationAvg, HealthServiceTimeScopeOnce);
+  if (m & HealthServiceAccessibilityMaskNotSupported) return false;
+  return true;
+#endif
+}
+
 int get_steps_today(void) {
 #if defined(PBL_HEALTH)
   HealthServiceAccessibilityMask m = health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), time(NULL));
@@ -55,6 +66,23 @@ int calc_sleep_score(int total, int restful, int rhr, int shr) {
   return score;
 }
 
+int calc_sleep_score_no_hr(int total, int restful) {
+  if (total <= 0) return 0;
+  int durationScore = total * 100 / 28800;
+  if (durationScore > 100) durationScore = 100;
+  int restfulScore;
+  if (restful <= 0) restfulScore = 50;
+  else {
+    int ratioPct = restful * 100 / total;
+    restfulScore = ratioPct * 100 / 25;
+    if (restfulScore > 100) restfulScore = 100;
+  }
+  int score = (durationScore * 60 + restfulScore * 40) / 100;
+  if (score < 0) score = 0;
+  if (score > 100) score = 100;
+  return score;
+}
+
 int calc_sleep_quality(int score) {
   if (score >= 90) return 1;
   if (score >= 80) return 2;
@@ -75,7 +103,14 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
   int restful = 0;
   m = health_service_metric_accessible(HealthMetricSleepRestfulSeconds, start, end);
   if (m & HealthServiceAccessibilityMaskAvailable) restful = (int)health_service_sum(HealthMetricSleepRestfulSeconds, start, end);
-  {
+  bool hrSensor = has_hr_sensor();
+  if (!hrSensor) {
+    out->rhr = 0;
+    out->shr = 0;
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "query %s no HR sensor restful %d", out->date, restful);
+    out->sleepScore = calc_sleep_score_no_hr(out->sleep, restful);
+    out->sleepQuality = calc_sleep_quality(out->sleepScore);
+  } else {
     int hr_min = 255;
     int hr_sum = 0;
     int hr_count = 0;
@@ -113,9 +148,15 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
         }
       }
     }
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "query %s hr_min %d avg %d cnt %d restful %d", out->date, out->rhr, out->shr, hr_count, restful);
-    out->sleepScore = calc_sleep_score(out->sleep, restful, out->rhr, out->shr);
+    if (hr_count > 0 && out->rhr > 0 && out->shr > 0) {
+      out->sleepScore = calc_sleep_score(out->sleep, restful, out->rhr, out->shr);
+    } else {
+      out->rhr = 0;
+      out->shr = 0;
+      out->sleepScore = calc_sleep_score_no_hr(out->sleep, restful);
+    }
     out->sleepQuality = calc_sleep_quality(out->sleepScore);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "query %s hr_min %d avg %d cnt %d restful %d score %d qual %d", out->date, out->rhr, out->shr, hr_count, restful, out->sleepScore, out->sleepQuality);
   }
 #else
   (void)start; (void)end;
