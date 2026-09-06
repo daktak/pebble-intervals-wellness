@@ -66,6 +66,19 @@ Pebble.addEventListener("ready", function() {
       console.log("pushing sync time " + h + ":" + m);
       Pebble.sendAppMessage({ SYNC_HOUR: h, SYNC_MINUTE: m }, function() { console.log("sync time push ok"); }, function(e) { console.log("sync time push fail " + e); });
     }
+    var hs = parseInt(s.HRV_START_HOUR, 10);
+    var hsm = parseInt(s.HRV_START_MINUTE, 10);
+    var he = parseInt(s.HRV_END_HOUR, 10);
+    var hem = parseInt(s.HRV_END_MINUTE, 10);
+    var hrMsg = {};
+    if (!isNaN(hs)) hrMsg.HRV_START_HOUR = hs;
+    if (!isNaN(hsm)) hrMsg.HRV_START_MINUTE = hsm;
+    if (!isNaN(he)) hrMsg.HRV_END_HOUR = he;
+    if (!isNaN(hem)) hrMsg.HRV_END_MINUTE = hem;
+    if (Object.keys(hrMsg).length > 0) {
+      console.log("pushing HRV window " + JSON.stringify(hrMsg));
+      Pebble.sendAppMessage(hrMsg, function() { console.log("hrv window push ok"); }, function(e) { console.log("hrv window push fail " + e); });
+    }
     var k = s.API_KEY;
     if (k) localStorage.setItem("icu_api_key", k);
   } catch (e) { console.log("ready push err " + e); }
@@ -77,6 +90,10 @@ Pebble.addEventListener("appmessage", function(e) {
   if (typeof p.API_KEY !== "undefined") localStorage.setItem("icu_api_key", p.API_KEY);
   if (typeof p.SYNC_HOUR !== "undefined") localStorage.setItem("sync_hour", String(p.SYNC_HOUR));
   if (typeof p.SYNC_MINUTE !== "undefined") localStorage.setItem("sync_minute", String(p.SYNC_MINUTE));
+  if (typeof p.HRV_START_HOUR !== "undefined") localStorage.setItem("hrv_start_hour", String(p.HRV_START_HOUR));
+  if (typeof p.HRV_START_MINUTE !== "undefined") localStorage.setItem("hrv_start_minute", String(p.HRV_START_MINUTE));
+  if (typeof p.HRV_END_HOUR !== "undefined") localStorage.setItem("hrv_end_hour", String(p.HRV_END_HOUR));
+  if (typeof p.HRV_END_MINUTE !== "undefined") localStorage.setItem("hrv_end_minute", String(p.HRV_END_MINUTE));
   var yDate = p.Y_DATE;
   var tDate = p.T_DATE;
   var hasY = typeof yDate !== "undefined" && yDate;

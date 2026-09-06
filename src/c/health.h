@@ -10,3 +10,5 @@ int calc_sleep_score(int total, int restful, int rhr, int shr);
 int calc_sleep_score_no_hr(int total, int restful);
 int calc_sleep_quality(int score);
 int query_day(time_t start, time_t end, WellnessDay *out);
+bool hrv_window_active(void);
+void hrv_window_update(void);

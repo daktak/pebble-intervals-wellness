@@ -20,6 +20,7 @@ static void init(void) {
     if (wakeup_get_launch_event(&id, &cookie)) wakeup_handler(id, cookie);
     else { s_pending_wakeup = true; schedule_wakeup(); }
   } else schedule_wakeup();
+  hrv_window_update();
   s_window = window_create();
   window_set_background_color(s_window, GColorBlack);
   window_set_click_config_provider(s_window, click_config_provider);

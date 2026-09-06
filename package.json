@@ -54,7 +54,11 @@
       "STATUS",
       "API_KEY",
       "SYNC_HOUR",
-      "SYNC_MINUTE"
+      "SYNC_MINUTE",
+      "HRV_START_HOUR",
+      "HRV_START_MINUTE",
+      "HRV_END_HOUR",
+      "HRV_END_MINUTE"
     ],
     "resources": {
       "media": [

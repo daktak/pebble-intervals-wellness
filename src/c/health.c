@@ -27,6 +27,52 @@ bool has_hr_sensor(void) {
 #endif
 }
 
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+static bool s_hrv_sampling = false;
+#endif
+
+bool hrv_window_active(void) {
+  int sh = 22;
+  int sm = 0;
+  int eh = 8;
+  int em = 0;
+  if (persist_exists(KEY_HRV_START_HOUR)) sh = persist_read_int(KEY_HRV_START_HOUR);
+  if (persist_exists(KEY_HRV_START_MINUTE)) sm = persist_read_int(KEY_HRV_START_MINUTE);
+  if (persist_exists(KEY_HRV_END_HOUR)) eh = persist_read_int(KEY_HRV_END_HOUR);
+  if (persist_exists(KEY_HRV_END_MINUTE)) em = persist_read_int(KEY_HRV_END_MINUTE);
+  if (sh < 0 || sh > 23) sh = 22;
+  if (eh < 0 || eh > 23) eh = 8;
+  if (sm < 0 || sm > 59) sm = 0;
+  if (em < 0 || em > 59) em = 0;
+  if (sh == eh && sm == em) return false;
+  time_t now = time(NULL);
+  struct tm *t = localtime(&now);
+  int cur = t->tm_hour * 60 + t->tm_min;
+  int start = sh * 60 + sm;
+  int end = eh * 60 + em;
+  if (start < end) return cur >= start && cur < end;
+  return cur >= start || cur < end;
+}
+
+void hrv_window_update(void) {
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  if (!has_hr_sensor()) return;
+  bool active = hrv_window_active();
+  if (active && !s_hrv_sampling) {
+    if (health_service_set_hrv_sample_period(10)) {
+      s_hrv_sampling = true;
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV window ON");
+    }
+  } else if (!active && s_hrv_sampling) {
+    health_service_set_hrv_sample_period(0);
+    s_hrv_sampling = false;
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV window OFF");
+  }
+#else
+  (void)0;
+#endif
+}
+
 int get_steps_today(void) {
 #if defined(PBL_HEALTH)
   HealthServiceAccessibilityMask m = health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), time(NULL));
