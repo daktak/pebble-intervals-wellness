@@ -77,9 +77,9 @@ void hrv_window_update(void) {
   bool duty = duty_active();
   bool should = active && duty;
   if (should && !s_hrv_sampling) {
-    if (health_service_set_hrv_sample_period(10)) {
+    if (health_service_set_hrv_sample_period(30)) {
       s_hrv_sampling = true;
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV window ON duty");
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV window ON duty 30s");
     }
   } else if (!should && s_hrv_sampling) {
     health_service_set_hrv_sample_period(0);
@@ -184,33 +184,10 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
       }
     }
     if (out->hrv != 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly %d sdnn %d date %s", out->hrv, out->hrvSDNN, hrv_date);
+    else APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly date %s no match for %s", hrv_date, out->date);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (no nightly)", out->date);
   }
-  if (out->hrv == 0 && persist_exists(KEY_HRV_RING_CNT)) {
-    int cnt = persist_read_int(KEY_HRV_RING_CNT);
-    if (cnt > 0 && cnt <= 200) {
-      int rmssd[200]; int sdnn[200];
-      int sz_rmssd = persist_get_size(KEY_HRV_RING_RMSSD);
-      int sz_sdnn = persist_get_size(KEY_HRV_RING_SDNN);
-      if (sz_rmssd == cnt * (int)sizeof(int) && sz_sdnn == cnt * (int)sizeof(int)) {
-        persist_read_data(KEY_HRV_RING_RMSSD, rmssd, sz_rmssd);
-        persist_read_data(KEY_HRV_RING_SDNN, sdnn, sz_sdnn);
-        int tmp_r[200]; int tmp_s[200];
-        for (int i = 0; i < cnt; i++) { tmp_r[i] = rmssd[i]; tmp_s[i] = sdnn[i]; }
-        for (int i = 0; i < cnt; i++) for (int j = i+1; j < cnt; j++) if (tmp_r[j] < tmp_r[i]) { int tt = tmp_r[i]; tmp_r[i] = tmp_r[j]; tmp_r[j] = tt; }
-        for (int i = 0; i < cnt; i++) for (int j = i+1; j < cnt; j++) if (tmp_s[j] < tmp_s[i]) { int tt = tmp_s[i]; tmp_s[i] = tmp_s[j]; tmp_s[j] = tt; }
-        int med_r = tmp_r[cnt/2];
-        int med_s = tmp_s[cnt/2];
-        if (med_r > 0) {
-          out->hrv = med_r;
-          out->hrvSDNN = med_s;
-          APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring median %d sdnn %d cnt %d for %s", med_r, med_s, cnt, out->date);
-        }
-      } else {
-        APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring size mismatch cnt %d sz %d/%d", cnt, sz_rmssd, sz_sdnn);
-      }
-    }
-  }
-  if (out->hrv == 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s ring %d", out->date, persist_exists(KEY_HRV_RING_CNT) ? persist_read_int(KEY_HRV_RING_CNT) : 0);
 #endif
   bool hrSensor = has_hr_sensor();
   if (!hrSensor) {
