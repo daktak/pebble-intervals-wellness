@@ -91,6 +91,10 @@ void update_display(void) {
   if (s_cached_y.sleepScore > 0) snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score %d", s_cached_y.sleepScore);
   else snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score --");
   text_layer_set_text(s_score_layer, s_score_buf);
+  if (persist_exists(KEY_HRV_RING_CNT)) {
+    int cnt = persist_read_int(KEY_HRV_RING_CNT);
+    if (cnt > 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring %d bursts", cnt);
+  }
 #endif
 }
 
