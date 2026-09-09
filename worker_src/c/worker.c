@@ -131,12 +131,24 @@ static void hrv_event_handler(HealthEventType event, void *ctx) {
   }
 }
 
+static void restore_bursts(void) {
+  if (!persist_exists(KEY_HRV_RING_CNT)) return;
+  int cnt = persist_read_int(KEY_HRV_RING_CNT);
+  if (cnt <= 0 || cnt > BURST_BUF_SIZE) return;
+  int sz_r = persist_get_size(KEY_HRV_RING_RMSSD);
+  int sz_s = persist_get_size(KEY_HRV_RING_SDNN);
+  if (sz_r != cnt * (int)sizeof(int) || sz_s != cnt * (int)sizeof(int)) return;
+  persist_read_data(KEY_HRV_RING_RMSSD, s_burst_rmssd, sz_r);
+  persist_read_data(KEY_HRV_RING_SDNN, s_burst_sdnn, sz_s);
+  s_burst_cnt = cnt;
+}
+
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   bool active = hrv_window_active();
   bool duty = duty_active();
   bool should_sample = active && duty;
   if (should_sample && !s_hrv_sampling) {
-    health_service_set_hrv_sample_period(10);
+    health_service_set_hrv_sample_period(30);
     s_hrv_sampling = true;
     s_ppi_cnt = 0;
   } else if (!should_sample && s_hrv_sampling) {
@@ -147,12 +159,27 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (!active && s_was_active) {
     if (s_ppi_cnt > 0) burst_end();
     night_end();
+  } else if (!active && !s_was_active && s_burst_cnt == 0) {
+    restore_bursts();
+    if (s_burst_cnt > 0) {
+      if (s_ppi_cnt > 0) burst_end();
+      night_end();
+    }
+  } else if (!active && s_burst_cnt > 0) {
+    char today[12]; format_date(time(NULL), today, sizeof(today));
+    char nightly[12] = {0};
+    if (persist_exists(KEY_HRV_NIGHT_DATE)) persist_read_string(KEY_HRV_NIGHT_DATE, nightly, sizeof(nightly));
+    if (strcmp(nightly, today) != 0) {
+      if (s_ppi_cnt > 0) burst_end();
+      night_end();
+    }
   }
   s_was_active = active;
 }
 
 int main(void) {
 #if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  restore_bursts();
   health_service_events_subscribe(hrv_event_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
   time_t now = time(NULL);

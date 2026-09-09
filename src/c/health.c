@@ -188,6 +188,33 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
   } else {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (no nightly)", out->date);
   }
+  if (out->hrv == 0 && persist_exists(KEY_HRV_RING_CNT)) {
+    int cnt = persist_read_int(KEY_HRV_RING_CNT);
+    if (cnt > 0 && cnt <= 200) {
+      int sz_r = persist_get_size(KEY_HRV_RING_RMSSD);
+      int sz_s = persist_get_size(KEY_HRV_RING_SDNN);
+      if (sz_r == cnt * (int)sizeof(int) && sz_s == cnt * (int)sizeof(int)) {
+        int rmssd[200]; int sdnn[200];
+        persist_read_data(KEY_HRV_RING_RMSSD, rmssd, sz_r);
+        persist_read_data(KEY_HRV_RING_SDNN, sdnn, sz_s);
+        int tmp_r[200]; int tmp_s[200];
+        for (int i = 0; i < cnt; i++) { tmp_r[i] = rmssd[i]; tmp_s[i] = sdnn[i]; }
+        for (int i = 0; i < cnt; i++) for (int j = i+1; j < cnt; j++) if (tmp_r[j] < tmp_r[i]) { int t = tmp_r[i]; tmp_r[i] = tmp_r[j]; tmp_r[j] = t; }
+        for (int i = 0; i < cnt; i++) for (int j = i+1; j < cnt; j++) if (tmp_s[j] < tmp_s[i]) { int t = tmp_s[i]; tmp_s[i] = tmp_s[j]; tmp_s[j] = t; }
+        int med_r = tmp_r[cnt/2]; int med_s = tmp_s[cnt/2];
+        if (med_r > 0) {
+          out->hrv = med_r; out->hrvSDNN = med_s;
+          APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring fallback median %d sdnn %d cnt %d for %s", med_r, med_s, cnt, out->date);
+          char today[12]; format_date(time(NULL), today, sizeof(today));
+          if (strcmp(out->date, today) == 0 || strcmp(today, out->date) == 0) {
+            persist_write_int(KEY_HRV_NIGHT_RMSSD, med_r);
+            persist_write_int(KEY_HRV_NIGHT_SDNN, med_s);
+            persist_write_string(KEY_HRV_NIGHT_DATE, out->date);
+          }
+        }
+      }
+    }
+  }
 #endif
   bool hrSensor = has_hr_sensor();
   if (!hrSensor) {
