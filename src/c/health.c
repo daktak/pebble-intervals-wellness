@@ -174,17 +174,10 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
     if (strcmp(hrv_date, out->date) == 0) {
       out->hrv = persist_read_int(KEY_HRV_NIGHT_RMSSD);
       out->hrvSDNN = persist_read_int(KEY_HRV_NIGHT_SDNN);
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly %d sdnn %d date %s", out->hrv, out->hrvSDNN, hrv_date);
     } else {
-      time_t t = start + 86400;
-      char nxt[12]; format_date(t, nxt, sizeof(nxt));
-      if (strcmp(hrv_date, nxt) == 0) {
-        out->hrv = persist_read_int(KEY_HRV_NIGHT_RMSSD);
-        out->hrvSDNN = persist_read_int(KEY_HRV_NIGHT_SDNN);
-        APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly %s assigned to %s (cross-midnight)", hrv_date, out->date);
-      }
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV date mismatch %s vs %s — skipping", hrv_date, out->date);
     }
-    if (out->hrv != 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly %d sdnn %d date %s", out->hrv, out->hrvSDNN, hrv_date);
-    else APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly date %s no match for %s", hrv_date, out->date);
   } else {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (no nightly)", out->date);
   }
