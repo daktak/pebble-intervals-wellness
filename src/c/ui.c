@@ -61,12 +61,16 @@ void update_display(void) {
       s_cached_y.sleep = persist_read_int(KEY_QUEUED_Y_SLEEP);
       if (persist_exists(KEY_QUEUED_Y_SCORE)) s_cached_y.sleepScore = persist_read_int(KEY_QUEUED_Y_SCORE);
       if (persist_exists(KEY_QUEUED_Y_QUALITY)) s_cached_y.sleepQuality = persist_read_int(KEY_QUEUED_Y_QUALITY);
+      if (persist_exists(KEY_QUEUED_Y_HRV)) s_cached_y.hrv = persist_read_int(KEY_QUEUED_Y_HRV);
+      if (persist_exists(KEY_QUEUED_Y_HRVSDNN)) s_cached_y.hrvSDNN = persist_read_int(KEY_QUEUED_Y_HRVSDNN);
       if (persist_exists(KEY_QUEUED_T_DATE)) {
         persist_read_string(KEY_QUEUED_T_DATE, s_cached_t.date, sizeof(s_cached_t.date));
         s_cached_t.rhr = persist_read_int(KEY_QUEUED_T_RHR);
         s_cached_t.shr = persist_read_int(KEY_QUEUED_T_SHR);
         if (persist_exists(KEY_QUEUED_T_SCORE)) s_cached_t.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
         if (persist_exists(KEY_QUEUED_T_QUALITY)) s_cached_t.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
+        if (persist_exists(KEY_QUEUED_T_HRV)) s_cached_t.hrv = persist_read_int(KEY_QUEUED_T_HRV);
+        if (persist_exists(KEY_QUEUED_T_HRVSDNN)) s_cached_t.hrvSDNN = persist_read_int(KEY_QUEUED_T_HRVSDNN);
       }
       s_has_cache = true;
     } else {
@@ -87,6 +91,10 @@ void update_display(void) {
   if (s_cached_y.sleepScore > 0) snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score %d", s_cached_y.sleepScore);
   else snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score --");
   text_layer_set_text(s_score_layer, s_score_buf);
+  if (persist_exists(KEY_HRV_RING_CNT)) {
+    int cnt = persist_read_int(KEY_HRV_RING_CNT);
+    if (cnt > 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring %d bursts", cnt);
+  }
 #endif
 }
 

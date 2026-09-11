@@ -85,6 +85,7 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   strftime(s_time_buf, sizeof(s_time_buf), "%H:%M", tick_time);
   text_layer_set_text(s_time_layer, s_time_buf);
   update_display();
+  hrv_window_update();
   if (s_pending_wakeup && connection_service_peek_pebblekit_connection()) {
     s_pending_wakeup = false;
     try_daily_sync(false);
@@ -112,5 +113,11 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
 }
 
 void health_handler(HealthEventType event, void *ctx) {
-  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate || event == HealthEventSleepUpdate || event == HealthEventHeartRateUpdate) update_display();
+  if (event == HealthEventHRVUpdate) {
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+    uint16_t ppi = health_service_peek_hrv_ppi_ms();
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ppi %u", ppi);
+#endif
+  }
+  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate || event == HealthEventSleepUpdate || event == HealthEventHeartRateUpdate || event == HealthEventHRVUpdate) update_display();
 }

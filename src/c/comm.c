@@ -4,6 +4,7 @@
 #include "schedule.h"
 #include "ui.h"
 #include "queue.h"
+#include "health.h"
 
 void inbox_received_handler(DictionaryIterator *iter, void *ctx) {
   Tuple *t;
@@ -26,6 +27,46 @@ void inbox_received_handler(DictionaryIterator *iter, void *ctx) {
     if (v < 0 || v > 59) v = 0;
     persist_write_int(KEY_SYNC_MINUTE, v);
     schedule_wakeup();
+  }
+  t = dict_find(iter, MESSAGE_KEY_HRV_START_HOUR);
+  if (t) {
+    int v = 22;
+    if (t->type == TUPLE_CSTRING) v = atoi(t->value->cstring);
+    else if (t->type == TUPLE_INT) v = (int)t->value->int32;
+    else if (t->type == TUPLE_UINT) v = (int)t->value->uint32;
+    if (v < 0 || v > 23) v = 22;
+    persist_write_int(KEY_HRV_START_HOUR, v);
+    hrv_window_update();
+  }
+  t = dict_find(iter, MESSAGE_KEY_HRV_START_MINUTE);
+  if (t) {
+    int v = 0;
+    if (t->type == TUPLE_CSTRING) v = atoi(t->value->cstring);
+    else if (t->type == TUPLE_INT) v = (int)t->value->int32;
+    else if (t->type == TUPLE_UINT) v = (int)t->value->uint32;
+    if (v < 0 || v > 59) v = 0;
+    persist_write_int(KEY_HRV_START_MINUTE, v);
+    hrv_window_update();
+  }
+  t = dict_find(iter, MESSAGE_KEY_HRV_END_HOUR);
+  if (t) {
+    int v = 8;
+    if (t->type == TUPLE_CSTRING) v = atoi(t->value->cstring);
+    else if (t->type == TUPLE_INT) v = (int)t->value->int32;
+    else if (t->type == TUPLE_UINT) v = (int)t->value->uint32;
+    if (v < 0 || v > 23) v = 8;
+    persist_write_int(KEY_HRV_END_HOUR, v);
+    hrv_window_update();
+  }
+  t = dict_find(iter, MESSAGE_KEY_HRV_END_MINUTE);
+  if (t) {
+    int v = 0;
+    if (t->type == TUPLE_CSTRING) v = atoi(t->value->cstring);
+    else if (t->type == TUPLE_INT) v = (int)t->value->int32;
+    else if (t->type == TUPLE_UINT) v = (int)t->value->uint32;
+    if (v < 0 || v > 59) v = 0;
+    persist_write_int(KEY_HRV_END_MINUTE, v);
+    hrv_window_update();
   }
   t = dict_find(iter, MESSAGE_KEY_STATUS);
   if (t) {

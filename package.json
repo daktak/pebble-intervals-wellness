@@ -1,7 +1,7 @@
 {
   "name": "pebble-intervals-wellness",
   "author": "daktak",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "keywords": [
     "pebble-app",
     "intervals",
@@ -42,6 +42,8 @@
       "Y_SHR",
       "Y_SCORE",
       "Y_QUALITY",
+      "Y_HRV",
+      "Y_HRVSDNN",
       "Y_DATE",
       "T_STEPS",
       "T_SLEEP",
@@ -49,12 +51,18 @@
       "T_SHR",
       "T_SCORE",
       "T_QUALITY",
+      "T_HRV",
+      "T_HRVSDNN",
       "T_DATE",
       "CMD",
       "STATUS",
       "API_KEY",
       "SYNC_HOUR",
-      "SYNC_MINUTE"
+      "SYNC_MINUTE",
+      "HRV_START_HOUR",
+      "HRV_START_MINUTE",
+      "HRV_END_HOUR",
+      "HRV_END_MINUTE"
     ],
     "resources": {
       "media": [

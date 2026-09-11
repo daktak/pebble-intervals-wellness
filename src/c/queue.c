@@ -29,6 +29,8 @@ void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_Y_SHR, &y->shr, sizeof(y->shr), true);
     dict_write_int(out, MESSAGE_KEY_Y_SCORE, &y->sleepScore, sizeof(y->sleepScore), true);
     dict_write_int(out, MESSAGE_KEY_Y_QUALITY, &y->sleepQuality, sizeof(y->sleepQuality), true);
+    dict_write_int(out, MESSAGE_KEY_Y_HRV, &y->hrv, sizeof(y->hrv), true);
+    dict_write_int(out, MESSAGE_KEY_Y_HRVSDNN, &y->hrvSDNN, sizeof(y->hrvSDNN), true);
     dict_write_cstring(out, MESSAGE_KEY_Y_DATE, y->date);
   }
   if (t) {
@@ -38,6 +40,8 @@ void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_T_SHR, &t->shr, sizeof(t->shr), true);
     dict_write_int(out, MESSAGE_KEY_T_SCORE, &t->sleepScore, sizeof(t->sleepScore), true);
     dict_write_int(out, MESSAGE_KEY_T_QUALITY, &t->sleepQuality, sizeof(t->sleepQuality), true);
+    dict_write_int(out, MESSAGE_KEY_T_HRV, &t->hrv, sizeof(t->hrv), true);
+    dict_write_int(out, MESSAGE_KEY_T_HRVSDNN, &t->hrvSDNN, sizeof(t->hrvSDNN), true);
     dict_write_cstring(out, MESSAGE_KEY_T_DATE, t->date);
   }
   int32_t cmd = 0;
@@ -65,6 +69,8 @@ void send_queued(void) {
   if (persist_exists(KEY_QUEUED_Y_SHR)) y.shr = persist_read_int(KEY_QUEUED_Y_SHR);
   if (persist_exists(KEY_QUEUED_Y_SCORE)) y.sleepScore = persist_read_int(KEY_QUEUED_Y_SCORE);
   if (persist_exists(KEY_QUEUED_Y_QUALITY)) y.sleepQuality = persist_read_int(KEY_QUEUED_Y_QUALITY);
+  if (persist_exists(KEY_QUEUED_Y_HRV)) y.hrv = persist_read_int(KEY_QUEUED_Y_HRV);
+  if (persist_exists(KEY_QUEUED_Y_HRVSDNN)) y.hrvSDNN = persist_read_int(KEY_QUEUED_Y_HRVSDNN);
   if (persist_exists(KEY_QUEUED_T_DATE)) persist_read_string(KEY_QUEUED_T_DATE, tt.date, sizeof(tt.date));
   if (persist_exists(KEY_QUEUED_T_STEPS)) tt.steps = persist_read_int(KEY_QUEUED_T_STEPS);
   if (persist_exists(KEY_QUEUED_T_SLEEP)) tt.sleep = persist_read_int(KEY_QUEUED_T_SLEEP);
@@ -72,6 +78,8 @@ void send_queued(void) {
   if (persist_exists(KEY_QUEUED_T_SHR)) tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
   if (persist_exists(KEY_QUEUED_T_SCORE)) tt.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
   if (persist_exists(KEY_QUEUED_T_QUALITY)) tt.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
+  if (persist_exists(KEY_QUEUED_T_HRV)) tt.hrv = persist_read_int(KEY_QUEUED_T_HRV);
+  if (persist_exists(KEY_QUEUED_T_HRVSDNN)) tt.hrvSDNN = persist_read_int(KEY_QUEUED_T_HRVSDNN);
   if (y.date[0] == '\0' && tt.date[0] == '\0') return;
   s_cached_y = y;
   s_cached_t = tt;
@@ -89,6 +97,8 @@ void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_Y_SHR, y->shr);
     persist_write_int(KEY_QUEUED_Y_SCORE, y->sleepScore);
     persist_write_int(KEY_QUEUED_Y_QUALITY, y->sleepQuality);
+    persist_write_int(KEY_QUEUED_Y_HRV, y->hrv);
+    persist_write_int(KEY_QUEUED_Y_HRVSDNN, y->hrvSDNN);
   } else {
     persist_delete(KEY_QUEUED_Y_DATE);
   }
@@ -100,6 +110,8 @@ void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_T_SHR, t->shr);
     persist_write_int(KEY_QUEUED_T_SCORE, t->sleepScore);
     persist_write_int(KEY_QUEUED_T_QUALITY, t->sleepQuality);
+    persist_write_int(KEY_QUEUED_T_HRV, t->hrv);
+    persist_write_int(KEY_QUEUED_T_HRVSDNN, t->hrvSDNN);
   } else {
     persist_delete(KEY_QUEUED_T_DATE);
   }
