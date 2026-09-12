@@ -53,7 +53,6 @@ void wakeup_handler(WakeupId id, int32_t cookie) {
 
 void try_daily_sync(bool force) {
   if (!has_health()) { set_status("No Health"); return; }
-  if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) { send_queued(); return; }
   time_t now = time(NULL);
   time_t today_start = time_start_of_today();
   time_t y0 = today_start - 86400;
@@ -68,16 +67,29 @@ void try_daily_sync(bool force) {
   strncpy(s_y_date, y.date, sizeof(s_y_date));
   strncpy(s_t_date, tt.date, sizeof(s_t_date));
   if (s_rhr_layer) update_display();
+  // NEW: Skip HRV if already posted for this day
+  if (persist_exists(KEY_HRV_POSTED_DATE)) {
+    char posted_date[12];
+    persist_read_string(KEY_HRV_POSTED_DATE, posted_date, sizeof(posted_date));
+    if (strcmp(posted_date, y.date) == 0 || strcmp(posted_date, tt.date) == 0) {
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV already posted for %s — skipping HRV", posted_date);
+      y.hrv = 0; y.hrvSDNN = 0;
+      tt.hrv = 0; tt.hrvSDNN = 0;
+    }
+  }
   if (!force && y.date[0] && is_already_synced(y.date)) {
     if (tt.date[0]) {
       WellnessDay *py = NULL;
       if (force) py = &y;
       queue_wellness(py, &tt);
+      persist_write_string(KEY_HRV_POSTED_DATE, y.date);
       return;
     }
+    persist_write_string(KEY_HRV_POSTED_DATE, y.date);
     return;
   }
   queue_wellness(&y, &tt);
+  persist_write_string(KEY_HRV_POSTED_DATE, y.date);
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
