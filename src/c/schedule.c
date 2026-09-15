@@ -96,7 +96,12 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (persist_exists(KEY_SYNC_HOUR)) sync_h = persist_read_int(KEY_SYNC_HOUR);
   if (persist_exists(KEY_SYNC_MINUTE)) sync_m = persist_read_int(KEY_SYNC_MINUTE);
   if (tick_time->tm_hour == sync_h && tick_time->tm_min == sync_m) {
-    if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) { send_queued(); return; }
+    if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
+      send_queued();
+      persist_write_bool(KEY_QUEUED_PENDING, false);
+      persist_write_string(KEY_LAST_SYNC_DATE, s_y_date);
+      return;
+    }
     time_t today_start = time_start_of_today();
     WellnessDay y = {0};
     query_day(today_start - 86400, today_start - 1, &y);
