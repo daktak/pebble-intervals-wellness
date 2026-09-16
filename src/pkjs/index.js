@@ -108,8 +108,6 @@ Pebble.addEventListener("appmessage", function(e) {
       if (typeof p.Y_SHR !== "undefined" && parseInt(p.Y_SHR, 10) > 0) r.avgSleepingHR = parseInt(p.Y_SHR, 10);
       if (typeof p.Y_SCORE !== "undefined" && parseInt(p.Y_SCORE, 10) > 0) r.sleepScore = parseInt(p.Y_SCORE, 10);
       if (typeof p.Y_QUALITY !== "undefined" && parseInt(p.Y_QUALITY, 10) > 0) r.sleepQuality = parseInt(p.Y_QUALITY, 10);
-      if (typeof p.Y_HRV !== "undefined" && parseInt(p.Y_HRV, 10) > 0) r.hrv = parseInt(p.Y_HRV, 10);
-      if (typeof p.Y_HRVSDNN !== "undefined" && parseInt(p.Y_HRVSDNN, 10) > 0) r.hrvSDNN = parseInt(p.Y_HRVSDNN, 10);
       records.push(r);
     }
     if (hasT) {
