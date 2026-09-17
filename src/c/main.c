@@ -12,7 +12,10 @@ static void init(void) {
   app_message_register_inbox_dropped(inbox_dropped_handler);
   app_message_register_outbox_failed(outbox_failed_handler);
   app_message_register_outbox_sent(outbox_sent_handler);
-  app_message_open(512, 512);
+  app_message_open(128, 128);
+  persist_delete(KEY_QUEUED_Y_DATE);
+  persist_delete(KEY_QUEUED_T_DATE);
+  persist_delete(KEY_QUEUED_PENDING);
   s_wakeup_launch = (launch_reason() == APP_LAUNCH_WAKEUP);
   wakeup_service_subscribe(wakeup_handler);
   if (s_wakeup_launch) {
