@@ -13,6 +13,8 @@ TextLayer *s_sleep_layer;
 TextLayer *s_rhr_layer;
 TextLayer *s_shr_layer;
 TextLayer *s_score_layer;
+TextLayer *s_hrv_rmssd_layer;
+TextLayer *s_hrv_sdnn_layer;
 TextLayer *s_status_layer;
 AppTimer *s_exit_timer = NULL;
 bool s_wakeup_launch = false;
@@ -23,6 +25,8 @@ static char s_rhr_buf[32];
 static char s_shr_buf[32];
 static char s_score_buf[32];
 static char s_status_buf[64];
+static char s_hrv_rmssd_buf[32];
+static char s_hrv_sdnn_buf[32];
 
 void set_status(const char *msg) {
   snprintf(s_status_buf, sizeof(s_status_buf), "%s", msg);
@@ -91,6 +95,17 @@ void update_display(void) {
   if (s_cached_y.sleepScore > 0) snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score %d", s_cached_y.sleepScore);
   else snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score --");
   text_layer_set_text(s_score_layer, s_score_buf);
+#if PBL_PLATFORM_TYPE_CURRENT == PlatformTypeEmery
+  if (s_cached_y.hrv > 0) {
+    snprintf(s_hrv_rmssd_buf, sizeof(s_hrv_rmssd_buf), "RMSSD %dms", s_cached_y.hrv);
+    snprintf(s_hrv_sdnn_buf, sizeof(s_hrv_sdnn_buf), "SDNN %dms", s_cached_y.hrvSDNN);
+  } else {
+    snprintf(s_hrv_rmssd_buf, sizeof(s_hrv_rmssd_buf), "RMSSD --");
+    snprintf(s_hrv_sdnn_buf, sizeof(s_hrv_sdnn_buf), "SDNN --");
+  }
+  text_layer_set_text(s_hrv_rmssd_layer, s_hrv_rmssd_buf);
+  text_layer_set_text(s_hrv_sdnn_layer, s_hrv_sdnn_buf);
+#endif
   if (persist_exists(KEY_HRV_RING_CNT)) {
     int cnt = persist_read_int(KEY_HRV_RING_CNT);
     if (cnt > 0) APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ring %d bursts", cnt);
@@ -147,6 +162,20 @@ void window_load(Window *window) {
   text_layer_set_font(s_score_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
   text_layer_set_text_alignment(s_score_layer, GTextAlignmentCenter);
   layer_add_child(root, text_layer_get_layer(s_score_layer));
+#if PBL_PLATFORM_TYPE_CURRENT == PlatformTypeEmery
+  s_hrv_rmssd_layer = text_layer_create(GRect(0, 130, w, 18));
+  text_layer_set_background_color(s_hrv_rmssd_layer, GColorClear);
+  text_layer_set_text_color(s_hrv_rmssd_layer, GColorLightGray);
+  text_layer_set_font(s_hrv_rmssd_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_text_alignment(s_hrv_rmssd_layer, GTextAlignmentCenter);
+  layer_add_child(root, text_layer_get_layer(s_hrv_rmssd_layer));
+  s_hrv_sdnn_layer = text_layer_create(GRect(0, 148, w, 18));
+  text_layer_set_background_color(s_hrv_sdnn_layer, GColorClear);
+  text_layer_set_text_color(s_hrv_sdnn_layer, GColorLightGray);
+  text_layer_set_font(s_hrv_sdnn_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+  text_layer_set_text_alignment(s_hrv_sdnn_layer, GTextAlignmentCenter);
+  layer_add_child(root, text_layer_get_layer(s_hrv_sdnn_layer));
+#endif
   s_status_layer = text_layer_create(GRect(5, bounds.size.h - 38, bounds.size.w - 10, 18));
   text_layer_set_background_color(s_status_layer, GColorClear);
   text_layer_set_text_color(s_status_layer, GColorLightGray);
@@ -197,5 +226,9 @@ void window_unload(Window *window) {
   text_layer_destroy(s_rhr_layer);
   text_layer_destroy(s_shr_layer);
   text_layer_destroy(s_score_layer);
+#if PBL_PLATFORM_TYPE_CURRENT == PlatformTypeEmery
+  text_layer_destroy(s_hrv_rmssd_layer);
+  text_layer_destroy(s_hrv_sdnn_layer);
+#endif
   text_layer_destroy(s_status_layer);
 }
