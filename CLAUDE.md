@@ -211,6 +211,56 @@ The Pebble SDK uses an **ES5 JavaScript parser**. These will break the build sil
 
 Note: The Alloy framework (modern JS) only targets `emery` and `gabbro`.
 
+## Worker Fault Debugging (Pebble background workers)
+
+This repo has a background worker (`worker_src/c/worker.c`) that collects HRV/sleep data even
+when the UI app is not foregrounded.
+
+### Critical: `persist_write_string()` crashes the worker (empirically proven)
+
+**Never call `persist_write_string()` from inside the worker** (`worker_src/c/worker.c`).
+On emery (and observed on the real watch) the PBL syscall behind it (function id `0x314`)
+hard-faults the worker process immediately, while `persist_write_int()` and
+`persist_write_data()` work fine.
+
+**Symptoms / how this bug presented (real incident):**
+- Worker started, `restore_bursts cnt 39` logged, then immediately `Worker fault!`
+  with `PC: 0x1214c8a9 LR: ???` — identical PC across multiple different worker builds.
+- A constant fault PC across *different binaries* means the crash is in **shared
+  firmware/worker-support code**, NOT your own worker code. The worker ELF symbols
+  (`.text` ~0xa8–0xbd0) never cover an address like `0x1214c8a9`.
+- The bug was originally misdiagnosed as the HRV activity-mask peek
+  (`health_service_peek_current_activities()`). That theory was WRONG — see
+  `git log`/revert history for the dead end. Do not "fix" the peek again; it is safe.
+
+**How to isolate a worker crash reliably:**
+1. Add `APP_LOG` markers immediately before and after each suspect API call
+   (e.g. `"before write date"` / `"after write date"`), rebuild, reinstall, re-test.
+2. The last marker printed right before the fault identifies the exact syscall.
+3. Keep the faltering watch logs (`logs.txt` in repo root, pulled from the phone).
+
+**Safe replacement (same bytes, same app-side readers):**
+Instead of:
+```c
+persist_write_string(KEY_HRV_NIGHT_DATE, date);   // CRASHES the worker
+```
+use:
+```c
+persist_write_data(KEY_HRV_NIGHT_DATE, date, (uint16_t)(strlen(date) + 1)); // SAFE
+```
+`persist_write_string()` is just a wrapper around `persist_write_data(key, str, strlen+1)`,
+so an app-side `persist_read_string()` reads the stored bytes back identically. The worker's
+HRV ring (`KEY_HRV_RING_*`, keys 51–53) already uses `persist_write_data()` with success,
+which is the proven-safe pattern.
+
+**Rule of thumb for workers:**
+- ✅ `persist_write_int` — safe
+- ✅ `persist_write_data` — safe (proven via HRV ring)
+- ❌ `persist_write_string` — faults the worker; avoid or route through the app
+
+The worker cannot run in the emulator, so every worker change requires a physical watch
+install + `logs.txt` capture for validation.
+
 ## Common Gotchas
 
 - **UUID must be unique** — reusing a UUID causes app rejection on installation; generate a new one per project with `uuidgen`
