@@ -200,7 +200,11 @@ void window_load(Window *window) {
     }
   }
   if (!has_health()) set_status("No Health");
-  else if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) { set_status("Queued retry"); send_queued(); }
+  else if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) { 
+    set_status("Queued retry"); 
+    char synced_date[12] = {0};
+    send_queued(synced_date, sizeof(synced_date));
+  }
   else if (persist_exists(KEY_LAST_SYNC_DATE)) {
     char last[12];
     persist_read_string(KEY_LAST_SYNC_DATE, last, sizeof(last));

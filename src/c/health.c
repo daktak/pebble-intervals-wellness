@@ -179,7 +179,10 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
       APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV date mismatch %s vs %s — skipping", hrv_date, out->date);
     }
   } else {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (no nightly)", out->date);
+    bool has_rmssd = persist_exists(KEY_HRV_NIGHT_RMSSD);
+    bool has_sdnn = persist_exists(KEY_HRV_NIGHT_SDNN);
+    bool has_date = persist_exists(KEY_HRV_NIGHT_DATE);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (rmssd %d sdnn %d date %d)", out->date, has_rmssd, has_sdnn, has_date);
   }
   #endif
   bool hrSensor = has_hr_sensor();

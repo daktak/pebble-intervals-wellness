@@ -97,7 +97,11 @@ static void calc_rmssd_sdnn(uint16_t *buf, int n, int *out_rmssd, int *out_sdnn)
 }
 
 static void burst_end(void) {
-  if (s_ppi_cnt < 2) { s_ppi_cnt = 0; return; }
+  if (s_ppi_cnt < 2) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "burst_end ppi_cnt %d too few", s_ppi_cnt);
+    s_ppi_cnt = 0;
+    return;
+  }
   int rmssd, sdnn;
   calc_rmssd_sdnn(s_ppi_buf, s_ppi_cnt, &rmssd, &sdnn);
   if (rmssd > 0 && s_burst_cnt < BURST_BUF_SIZE) {
@@ -107,12 +111,18 @@ static void burst_end(void) {
     persist_write_int(KEY_HRV_RING_CNT, s_burst_cnt);
     persist_write_data(KEY_HRV_RING_RMSSD, s_burst_rmssd, s_burst_cnt * sizeof(int));
     persist_write_data(KEY_HRV_RING_SDNN, s_burst_sdnn, s_burst_cnt * sizeof(int));
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "burst_end rmssd %d sdnn %d ppi %d total %d", rmssd, sdnn, s_ppi_cnt, s_burst_cnt);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "burst_end rmssd %d ppi %d discarded (buf full %d)", rmssd, s_ppi_cnt, s_burst_cnt);
   }
   s_ppi_cnt = 0;
 }
 
-static void night_end(void) {
-  if (s_burst_cnt == 0) return;
+static void night_end(struct tm *tick_time) {
+  if (s_burst_cnt == 0) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end cnt 0");
+    return;
+  }
   for (int i = 0; i < s_burst_cnt; i++) {
     s_tmp_rmssd[i] = s_burst_rmssd[i];
     s_tmp_sdnn[i] = s_burst_sdnn[i];
@@ -121,6 +131,14 @@ static void night_end(void) {
   int median_sdnn = quickselect_median(s_tmp_sdnn, s_burst_cnt);
   persist_write_int(KEY_HRV_NIGHT_RMSSD, median_rmssd);
   persist_write_int(KEY_HRV_NIGHT_SDNN, median_sdnn);
+  if (tick_time) {
+    char date[12];
+    snprintf(date, sizeof(date), "%04d-%02d-%02d", tick_time->tm_year + 1900, tick_time->tm_mon + 1, tick_time->tm_mday);
+    persist_write_string(KEY_HRV_NIGHT_DATE, date);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d date %s", median_rmssd, median_sdnn, s_burst_cnt, date);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d (timestamp unavailable)", median_rmssd, median_sdnn, s_burst_cnt);
+  }
   s_burst_cnt = 0;
 }
 
@@ -153,20 +171,33 @@ static void hrv_event_handler(HealthEventType event, void *ctx) {
     uint16_t ppi = health_service_peek_hrv_ppi_ms();
     if (ppi > 250 && ppi < 2200 && s_ppi_cnt < PPI_BUF_SIZE) {
       s_ppi_buf[s_ppi_cnt++] = ppi;
+      if (s_ppi_cnt == 1 || s_ppi_cnt % 10 == 0) {
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "ppi %u cnt %d", ppi, s_ppi_cnt);
+      }
     }
   }
 }
 
 static void restore_bursts(void) {
-  if (!persist_exists(KEY_HRV_RING_CNT)) return;
+  if (!persist_exists(KEY_HRV_RING_CNT)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "restore_bursts no ring");
+    return;
+  }
   int cnt = persist_read_int(KEY_HRV_RING_CNT);
-  if (cnt <= 0 || cnt > BURST_BUF_SIZE) return;
+  if (cnt <= 0 || cnt > BURST_BUF_SIZE) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "restore_bursts invalid cnt %d", cnt);
+    return;
+  }
   int sz_r = persist_get_size(KEY_HRV_RING_RMSSD);
   int sz_s = persist_get_size(KEY_HRV_RING_SDNN);
-  if (sz_r != cnt * (int)sizeof(int) || sz_s != cnt * (int)sizeof(int)) return;
+  if (sz_r != cnt * (int)sizeof(int) || sz_s != cnt * (int)sizeof(int)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "restore_bursts size mismatch cnt %d sz_r %d sz_s %d", cnt, sz_r, sz_s);
+    return;
+  }
   persist_read_data(KEY_HRV_RING_RMSSD, s_burst_rmssd, sz_r);
   persist_read_data(KEY_HRV_RING_SDNN, s_burst_sdnn, sz_s);
   s_burst_cnt = cnt;
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "restore_bursts cnt %d", cnt);
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -177,29 +208,32 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     health_service_set_hrv_sample_period(30);
     s_hrv_sampling = true;
     s_ppi_cnt = 0;
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "sampling ON active=%d duty=%d", active, duty);
   } else if (!should_sample && s_hrv_sampling) {
     health_service_set_hrv_sample_period(0);
     s_hrv_sampling = false;
     burst_end();
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "sampling OFF active=%d duty=%d", active, duty);
   }
   if (!active && s_was_active) {
     if (s_ppi_cnt > 0) burst_end();
-    night_end();
+    night_end(tick_time);
   } else if (!active && !s_was_active && s_burst_cnt == 0) {
     restore_bursts();
     if (s_burst_cnt > 0) {
       if (s_ppi_cnt > 0) burst_end();
-      night_end();
+      night_end(tick_time);
     }
   } else if (!active && s_burst_cnt > 0) {
     if (s_ppi_cnt > 0) burst_end();
-    night_end();
+    night_end(tick_time);
   }
   s_was_active = active;
 }
 
 int main(void) {
 #if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "worker start with HRV API");
   restore_bursts();
   health_service_events_subscribe(hrv_event_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
@@ -208,6 +242,7 @@ int main(void) {
   tick_handler(t, MINUTE_UNIT);
   worker_event_loop();
 #else
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "worker start WITHOUT HRV API");
   worker_event_loop();
 #endif
 }

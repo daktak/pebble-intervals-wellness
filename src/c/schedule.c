@@ -110,9 +110,11 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (persist_exists(KEY_SYNC_MINUTE)) sync_m = persist_read_int(KEY_SYNC_MINUTE);
   if (tick_time->tm_hour == sync_h && tick_time->tm_min == sync_m) {
     if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
-      send_queued();
+      char synced_date[12] = {0};
+      if (send_queued(synced_date, sizeof(synced_date))) {
+        persist_write_string(KEY_LAST_SYNC_DATE, synced_date[0] ? synced_date : s_y_date);
+      }
       persist_write_bool(KEY_QUEUED_PENDING, false);
-      persist_write_string(KEY_LAST_SYNC_DATE, s_y_date);
       return;
     }
     time_t today_start = time_start_of_today();
@@ -124,7 +126,10 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     }
   } else {
     if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
-      if (tick_time->tm_min % 5 == 0) send_queued();
+      if (tick_time->tm_min % 5 == 0) {
+        char synced_date[12] = {0};
+        send_queued(synced_date, sizeof(synced_date));
+      }
     }
   }
 }
