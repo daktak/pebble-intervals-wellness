@@ -253,10 +253,32 @@ so an app-side `persist_read_string()` reads the stored bytes back identically. 
 HRV ring (`KEY_HRV_RING_*`, keys 51–53) already uses `persist_write_data()` with success,
 which is the proven-safe pattern.
 
+### Critical: `strftime()` also crashes the worker (empirically proven)
+
+**Never call `strftime()` from inside the worker.**
+While refactoring the `night_end()` date formatting, `strftime()` replaced `snprintf()` and
+the worker immediately faulted again:
+- `worker start with HRV API` → `restore_bursts cnt 39` → `Worker fault! PC: 0x12086931`
+  (new PC, right before the `night_end` med log).
+- `strftime` is dispatched through the **same worker-support trampoline table** as
+  `persist_write_string` (worker ELF exports it as a `T` symbol just like the persist calls),
+  and the firmware-side implementation faults in worker context.
+- Reverting to `snprintf(date, sizeof(date), "%04d-%02d-%02d", ...)` fixed it:
+  `snprintf` is a proven-safe worker trampoline (used by the same `night_end` for multiple
+  builds). `strftime` no longer appears in the worker ELF after revert.
+- A **different constant crash PC** (`0x12086931` vs `0x1214c8a9`) while the code change was
+  a one-line format swap is a strong signature that you introduced a broken worker syscall.
+
 **Rule of thumb for workers:**
 - ✅ `persist_write_int` — safe
 - ✅ `persist_write_data` — safe (proven via HRV ring)
+- ✅ `snprintf` — safe (proven in `night_end` date formatting)
 - ❌ `persist_write_string` — faults the worker; avoid or route through the app
+- ❌ `strftime` — faults the worker the same way; build date strings with `snprintf` instead
+  (format `%04d-%02d-%02d` across `tm_year+1900`, `tm_mon+1`, `tm_mday`)
+- ⚠️ Any new libc-ish call added to the worker should be treated as suspect until proven —
+  workers only get the safe exports in the PBL trampoline table, and failures show up as
+  `Worker fault!` with a constant PC in shared firmware code, not in your `.text`.
 
 The worker cannot run in the emulator, so every worker change requires a physical watch
 install + `logs.txt` capture for validation.
