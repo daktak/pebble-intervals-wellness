@@ -97,7 +97,7 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   strftime(s_time_buf, sizeof(s_time_buf), "%H:%M", tick_time);
   text_layer_set_text(s_time_layer, s_time_buf);
   update_display();
-  hrv_window_update();
+  hrv_sampling_update();
   if (s_pending_wakeup && connection_service_peek_pebblekit_connection()) {
     s_pending_wakeup = false;
     try_daily_sync(false);

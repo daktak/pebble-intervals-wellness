@@ -1,9 +1,5 @@
 #include <pebble_worker.h>
 
-#define KEY_HRV_START_HOUR 40
-#define KEY_HRV_START_MINUTE 41
-#define KEY_HRV_END_HOUR 42
-#define KEY_HRV_END_MINUTE 43
 #define KEY_HRV_NIGHT_RMSSD 44
 #define KEY_HRV_NIGHT_SDNN 45
 #define KEY_HRV_NIGHT_DATE 46
@@ -13,6 +9,7 @@
 
 #define PPI_BUF_SIZE 64
 #define BURST_BUF_SIZE 50
+#define SLEEP_EVENT_IDLE_SECS (10 * 60)
 
 static bool s_hrv_sampling = false;
 static uint16_t s_ppi_buf[PPI_BUF_SIZE];
@@ -21,6 +18,8 @@ static int s_burst_rmssd[BURST_BUF_SIZE];
 static int s_burst_sdnn[BURST_BUF_SIZE];
 static int s_burst_cnt = 0;
 static bool s_was_active = false;
+static bool s_sleeping = false;
+static time_t s_last_sleep_event_utc = 0;
 
 // Static temp arrays to avoid stack allocation
 static int s_tmp_rmssd[BURST_BUF_SIZE];
@@ -28,43 +27,18 @@ static int s_tmp_sdnn[BURST_BUF_SIZE];
 
 static int quickselect_median(int *arr, int n);
 
-static bool hrv_window_active(void) {
-  int sh = 22; int sm = 0; int eh = 8; int em = 0;
-  if (persist_exists(KEY_HRV_START_HOUR)) sh = persist_read_int(KEY_HRV_START_HOUR);
-  if (persist_exists(KEY_HRV_START_MINUTE)) sm = persist_read_int(KEY_HRV_START_MINUTE);
-  if (persist_exists(KEY_HRV_END_HOUR)) eh = persist_read_int(KEY_HRV_END_HOUR);
-  if (persist_exists(KEY_HRV_END_MINUTE)) em = persist_read_int(KEY_HRV_END_MINUTE);
-  if (sh < 0 || sh > 23) sh = 22;
-  if (eh < 0 || eh > 23) eh = 8;
-  if (sm < 0 || sm > 59) sm = 0;
-  if (em < 0 || em > 59) em = 0;
-  if (sh == eh && sm == em) return false;
+static bool sleep_active(void) {
+  if (!s_sleeping) return false;
   time_t now = time(NULL);
-  struct tm *t = localtime(&now);
-  int cur = t->tm_hour * 60 + t->tm_min;
-  int start = sh * 60 + sm;
-  int end = eh * 60 + em;
-  if (start < end) return cur >= start && cur < end;
-  return cur >= start || cur < end;
+  return (now - s_last_sleep_event_utc) < SLEEP_EVENT_IDLE_SECS;
 }
 
 static bool duty_active(void) {
-  if (!hrv_window_active()) return false;
+  if (!sleep_active()) return false;
   time_t now = time(NULL);
   struct tm *t = localtime(&now);
   int mins = t->tm_hour * 60 + t->tm_min;
-  int sh = 22; int sm = 0;
-  if (persist_exists(KEY_HRV_START_HOUR)) sh = persist_read_int(KEY_HRV_START_HOUR);
-  if (persist_exists(KEY_HRV_START_MINUTE)) sm = persist_read_int(KEY_HRV_START_MINUTE);
-  int start = sh * 60 + sm;
-  int elapsed = mins - start;
-  if (elapsed < 0) elapsed += 1440;
-  return (elapsed % 15) < 3;
-}
-
-static void format_date(time_t t, char *buf, size_t len) {
-  struct tm *tm = localtime(&t);
-  strftime(buf, len, "%Y-%m-%d", tm);
+  return (mins % 15) < 3;
 }
 
 static void calc_rmssd_sdnn(uint16_t *buf, int n, int *out_rmssd, int *out_sdnn) {
@@ -134,7 +108,7 @@ static void night_end(struct tm *tick_time) {
   if (tick_time) {
     char date[12];
     snprintf(date, sizeof(date), "%04d-%02d-%02d", tick_time->tm_year + 1900, tick_time->tm_mon + 1, tick_time->tm_mday);
-    persist_write_string(KEY_HRV_NIGHT_DATE, date);
+    persist_write_data(KEY_HRV_NIGHT_DATE, date, (uint16_t)(strlen(date) + 1));
     APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d date %s", median_rmssd, median_sdnn, s_burst_cnt, date);
   } else {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d (timestamp unavailable)", median_rmssd, median_sdnn, s_burst_cnt);
@@ -167,6 +141,11 @@ static int quickselect_median(int *arr, int n) {
 }
 
 static void hrv_event_handler(HealthEventType event, void *ctx) {
+  if (event == HealthEventSleepUpdate) {
+    s_sleeping = true;
+    s_last_sleep_event_utc = time(NULL);
+    return;
+  }
   if (event == HealthEventHRVUpdate) {
     uint16_t ppi = health_service_peek_hrv_ppi_ms();
     if (ppi > 250 && ppi < 2200 && s_ppi_cnt < PPI_BUF_SIZE) {
@@ -201,7 +180,7 @@ static void restore_bursts(void) {
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-  bool active = hrv_window_active();
+  bool active = sleep_active();
   bool duty = duty_active();
   bool should_sample = active && duty;
   if (should_sample && !s_hrv_sampling) {
