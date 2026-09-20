@@ -108,7 +108,7 @@ static void night_end(struct tm *tick_time) {
   persist_write_int(KEY_HRV_NIGHT_SDNN, median_sdnn);
   if (tick_time) {
     char date[16];
-    strftime(date, sizeof(date), "%Y-%m-%d", tick_time);
+    snprintf(date, sizeof(date), "%04d-%02d-%02d", tick_time->tm_year + 1900, tick_time->tm_mon + 1, tick_time->tm_mday);
     persist_write_data(KEY_HRV_NIGHT_DATE, date, (uint16_t)(strlen(date) + 1));
     APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d date %s", median_rmssd, median_sdnn, s_burst_cnt, date);
   } else {
