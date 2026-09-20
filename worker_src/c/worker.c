@@ -7,6 +7,7 @@
 #define KEY_HRV_RING_RMSSD 52
 #define KEY_HRV_RING_SDNN 53
 
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
 #define PPI_BUF_SIZE 64
 #define BURST_BUF_SIZE 50
 #define SLEEP_EVENT_IDLE_SECS (10 * 60)
@@ -106,13 +107,14 @@ static void night_end(struct tm *tick_time) {
   persist_write_int(KEY_HRV_NIGHT_RMSSD, median_rmssd);
   persist_write_int(KEY_HRV_NIGHT_SDNN, median_sdnn);
   if (tick_time) {
-    char date[12];
-    snprintf(date, sizeof(date), "%04d-%02d-%02d", tick_time->tm_year + 1900, tick_time->tm_mon + 1, tick_time->tm_mday);
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", tick_time);
     persist_write_data(KEY_HRV_NIGHT_DATE, date, (uint16_t)(strlen(date) + 1));
     APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d date %s", median_rmssd, median_sdnn, s_burst_cnt, date);
   } else {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end med rmssd %d sdnn %d cnt %d (timestamp unavailable)", median_rmssd, median_sdnn, s_burst_cnt);
   }
+  persist_write_int(KEY_HRV_RING_CNT, 0);
   s_burst_cnt = 0;
 }
 
@@ -209,6 +211,7 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   }
   s_was_active = active;
 }
+#endif
 
 int main(void) {
 #if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)

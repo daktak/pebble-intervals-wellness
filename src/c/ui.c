@@ -96,9 +96,9 @@ void update_display(void) {
   else snprintf(s_score_buf, sizeof(s_score_buf), "Sleep Score --");
   text_layer_set_text(s_score_layer, s_score_buf);
 #if PBL_PLATFORM_TYPE_CURRENT == PlatformTypeEmery
-  if (s_cached_y.hrv > 0) {
-    snprintf(s_hrv_rmssd_buf, sizeof(s_hrv_rmssd_buf), "RMSSD %dms", s_cached_y.hrv);
-    snprintf(s_hrv_sdnn_buf, sizeof(s_hrv_sdnn_buf), "SDNN %dms", s_cached_y.hrvSDNN);
+  if (s_cached_t.hrv > 0) {
+    snprintf(s_hrv_rmssd_buf, sizeof(s_hrv_rmssd_buf), "RMSSD %dms", s_cached_t.hrv);
+    snprintf(s_hrv_sdnn_buf, sizeof(s_hrv_sdnn_buf), "SDNN %dms", s_cached_t.hrvSDNN);
   } else {
     snprintf(s_hrv_rmssd_buf, sizeof(s_hrv_rmssd_buf), "RMSSD --");
     snprintf(s_hrv_sdnn_buf, sizeof(s_hrv_sdnn_buf), "SDNN --");
