@@ -19,6 +19,7 @@ static int s_burst_rmssd[BURST_BUF_SIZE];
 static int s_burst_sdnn[BURST_BUF_SIZE];
 static int s_burst_cnt = 0;
 static bool s_was_active = false;
+static bool s_restore_idle_done = false;
 static bool s_sleeping = false;
 static time_t s_last_sleep_event_utc = 0;
 
@@ -199,7 +200,8 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (!active && s_was_active) {
     if (s_ppi_cnt > 0) burst_end();
     night_end(tick_time);
-  } else if (!active && !s_was_active && s_burst_cnt == 0) {
+  } else if (!active && !s_was_active && s_burst_cnt == 0 && !s_restore_idle_done) {
+    s_restore_idle_done = true;
     restore_bursts();
     if (s_burst_cnt > 0) {
       if (s_ppi_cnt > 0) burst_end();
