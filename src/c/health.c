@@ -27,6 +27,45 @@ bool has_hr_sensor(void) {
 #endif
 }
 
+bool hrv_sampling_active(void);
+
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+static bool s_hrv_sampling = false;
+
+static bool duty_active(void) {
+  if (!hrv_sampling_active()) return false;
+  time_t now = time(NULL);
+  struct tm *t = localtime(&now);
+  int mins = t->tm_hour * 60 + t->tm_min;
+  return (mins % 15) < 3;
+}
+#endif
+
+bool hrv_sampling_active(void) {
+  return (health_service_peek_current_activities() & HealthActivitySleep) != 0;
+}
+
+void hrv_sampling_update(void) {
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  if (!has_hr_sensor()) return;
+  bool active = hrv_sampling_active();
+  bool duty = duty_active();
+  bool should = active && duty;
+  if (should && !s_hrv_sampling) {
+    if (health_service_set_hrv_sample_period(30)) {
+      s_hrv_sampling = true;
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV sleep ON duty 30s");
+    }
+  } else if (!should && s_hrv_sampling) {
+    health_service_set_hrv_sample_period(0);
+    s_hrv_sampling = false;
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV sleep OFF duty");
+  }
+#else
+  (void)0;
+#endif
+}
+
 int get_steps_today(void) {
 #if defined(PBL_HEALTH)
   HealthServiceAccessibilityMask m = health_service_metric_accessible(HealthMetricStepCount, time_start_of_today(), time(NULL));
@@ -103,6 +142,24 @@ int query_day(time_t start, time_t end, WellnessDay *out) {
   int restful = 0;
   m = health_service_metric_accessible(HealthMetricSleepRestfulSeconds, start, end);
   if (m & HealthServiceAccessibilityMaskAvailable) restful = (int)health_service_sum(HealthMetricSleepRestfulSeconds, start, end);
+  out->hrv = 0; out->hrvSDNN = 0;
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+  if (persist_exists(KEY_HRV_NIGHT_RMSSD) && persist_exists(KEY_HRV_NIGHT_DATE)) {
+    char hrv_date[12]; persist_read_string(KEY_HRV_NIGHT_DATE, hrv_date, sizeof(hrv_date));
+    if (strcmp(hrv_date, out->date) == 0) {
+      out->hrv = persist_read_int(KEY_HRV_NIGHT_RMSSD);
+      out->hrvSDNN = persist_read_int(KEY_HRV_NIGHT_SDNN);
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV nightly %d sdnn %d date %s", out->hrv, out->hrvSDNN, hrv_date);
+    } else {
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV date mismatch %s vs %s — skipping", hrv_date, out->date);
+    }
+  } else {
+    bool has_rmssd = persist_exists(KEY_HRV_NIGHT_RMSSD);
+    bool has_sdnn = persist_exists(KEY_HRV_NIGHT_SDNN);
+    bool has_date = persist_exists(KEY_HRV_NIGHT_DATE);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV none for %s (rmssd %d sdnn %d date %d)", out->date, has_rmssd, has_sdnn, has_date);
+  }
+  #endif
   bool hrSensor = has_hr_sensor();
   if (!hrSensor) {
     out->rhr = 0;

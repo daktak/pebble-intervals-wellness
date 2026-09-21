@@ -31,7 +31,7 @@ function pushWellness(records) {
     return;
   }
   var url = "https://intervals.icu/api/v1/athlete/" + aid + "/wellness-bulk";
-  console.log("PUT wellness-bulk " + url + " n=" + records.length + " " + JSON.stringify(records).slice(0, 500));
+  console.log("PUT wellness-bulk " + url + " n=" + records.length + " " + JSON.stringify(records).slice(0, 600));
   var xhr = new XMLHttpRequest();
   xhr.open("PUT", url, true);
   try { xhr.setRequestHeader("Content-Type", "application/json"); } catch (e) {}
@@ -101,6 +101,8 @@ Pebble.addEventListener("appmessage", function(e) {
       if (typeof p.T_SHR !== "undefined" && parseInt(p.T_SHR, 10) > 0) r2.avgSleepingHR = parseInt(p.T_SHR, 10);
       if (typeof p.T_SCORE !== "undefined" && parseInt(p.T_SCORE, 10) > 0) r2.sleepScore = parseInt(p.T_SCORE, 10);
       if (typeof p.T_QUALITY !== "undefined" && parseInt(p.T_QUALITY, 10) > 0) r2.sleepQuality = parseInt(p.T_QUALITY, 10);
+      if (typeof p.T_HRV !== "undefined" && parseInt(p.T_HRV, 10) > 0) r2.hrv = parseInt(p.T_HRV, 10);
+      if (typeof p.T_HRVSDNN !== "undefined" && parseInt(p.T_HRVSDNN, 10) > 0) r2.hrvSDNN = parseInt(p.T_HRVSDNN, 10);
       records.push(r2);
     }
     if (records.length === 0) sendStatus("ERR no data");

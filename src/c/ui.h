@@ -7,6 +7,10 @@ extern TextLayer *s_sleep_layer;
 extern TextLayer *s_rhr_layer;
 extern TextLayer *s_shr_layer;
 extern TextLayer *s_score_layer;
+#if PBL_PLATFORM_TYPE_CURRENT == PlatformTypeEmery
+extern TextLayer *s_hrv_rmssd_layer;
+extern TextLayer *s_hrv_sdnn_layer;
+#endif
 extern TextLayer *s_status_layer;
 extern AppTimer *s_exit_timer;
 extern bool s_wakeup_launch;

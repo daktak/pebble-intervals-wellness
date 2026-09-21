@@ -53,7 +53,6 @@ void wakeup_handler(WakeupId id, int32_t cookie) {
 
 void try_daily_sync(bool force) {
   if (!has_health()) { set_status("No Health"); return; }
-  if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) { send_queued(); return; }
   time_t now = time(NULL);
   time_t today_start = time_start_of_today();
   time_t y0 = today_start - 86400;
@@ -68,16 +67,29 @@ void try_daily_sync(bool force) {
   strncpy(s_y_date, y.date, sizeof(s_y_date));
   strncpy(s_t_date, tt.date, sizeof(s_t_date));
   if (s_rhr_layer) update_display();
+  // NEW: Skip HRV if already posted for this day
+  if (persist_exists(KEY_HRV_POSTED_DATE)) {
+    char posted_date[12];
+    persist_read_string(KEY_HRV_POSTED_DATE, posted_date, sizeof(posted_date));
+    if (strcmp(posted_date, y.date) == 0 || strcmp(posted_date, tt.date) == 0) {
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV already posted for %s — skipping HRV", posted_date);
+      y.hrv = 0; y.hrvSDNN = 0;
+      tt.hrv = 0; tt.hrvSDNN = 0;
+    }
+  }
   if (!force && y.date[0] && is_already_synced(y.date)) {
     if (tt.date[0]) {
       WellnessDay *py = NULL;
       if (force) py = &y;
       queue_wellness(py, &tt);
+      persist_write_string(KEY_HRV_POSTED_DATE, y.date);
       return;
     }
+    persist_write_string(KEY_HRV_POSTED_DATE, y.date);
     return;
   }
   queue_wellness(&y, &tt);
+  persist_write_string(KEY_HRV_POSTED_DATE, y.date);
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -85,6 +97,7 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   strftime(s_time_buf, sizeof(s_time_buf), "%H:%M", tick_time);
   text_layer_set_text(s_time_layer, s_time_buf);
   update_display();
+  hrv_sampling_update();
   if (s_pending_wakeup && connection_service_peek_pebblekit_connection()) {
     s_pending_wakeup = false;
     try_daily_sync(false);
@@ -97,9 +110,11 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (persist_exists(KEY_SYNC_MINUTE)) sync_m = persist_read_int(KEY_SYNC_MINUTE);
   if (tick_time->tm_hour == sync_h && tick_time->tm_min == sync_m) {
     if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
-      send_queued();
+      char synced_date[12] = {0};
+      if (send_queued(synced_date, sizeof(synced_date))) {
+        persist_write_string(KEY_LAST_SYNC_DATE, synced_date[0] ? synced_date : s_y_date);
+      }
       persist_write_bool(KEY_QUEUED_PENDING, false);
-      persist_write_string(KEY_LAST_SYNC_DATE, s_y_date);
       return;
     }
     time_t today_start = time_start_of_today();
@@ -111,11 +126,20 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     }
   } else {
     if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
-      if (tick_time->tm_min % 5 == 0) send_queued();
+      if (tick_time->tm_min % 5 == 0) {
+        char synced_date[12] = {0};
+        send_queued(synced_date, sizeof(synced_date));
+      }
     }
   }
 }
 
 void health_handler(HealthEventType event, void *ctx) {
-  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate || event == HealthEventSleepUpdate || event == HealthEventHeartRateUpdate) update_display();
+  if (event == HealthEventHRVUpdate) {
+#if PBL_API_EXISTS(health_service_peek_hrv_ppi_ms)
+    uint16_t ppi = health_service_peek_hrv_ppi_ms();
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV ppi %u", ppi);
+#endif
+  }
+  if (event == HealthEventMovementUpdate || event == HealthEventSignificantUpdate || event == HealthEventSleepUpdate || event == HealthEventHeartRateUpdate || event == HealthEventHRVUpdate) update_display();
 }

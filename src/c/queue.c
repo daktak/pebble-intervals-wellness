@@ -29,6 +29,8 @@ void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_Y_SHR, &y->shr, sizeof(y->shr), true);
     dict_write_int(out, MESSAGE_KEY_Y_SCORE, &y->sleepScore, sizeof(y->sleepScore), true);
     dict_write_int(out, MESSAGE_KEY_Y_QUALITY, &y->sleepQuality, sizeof(y->sleepQuality), true);
+    dict_write_int(out, MESSAGE_KEY_Y_HRV, &y->hrv, sizeof(y->hrv), true);
+    dict_write_int(out, MESSAGE_KEY_Y_HRVSDNN, &y->hrvSDNN, sizeof(y->hrvSDNN), true);
     dict_write_cstring(out, MESSAGE_KEY_Y_DATE, y->date);
   }
   if (t) {
@@ -38,6 +40,8 @@ void send_wellness(WellnessDay *y, WellnessDay *t) {
     dict_write_int(out, MESSAGE_KEY_T_SHR, &t->shr, sizeof(t->shr), true);
     dict_write_int(out, MESSAGE_KEY_T_SCORE, &t->sleepScore, sizeof(t->sleepScore), true);
     dict_write_int(out, MESSAGE_KEY_T_QUALITY, &t->sleepQuality, sizeof(t->sleepQuality), true);
+    dict_write_int(out, MESSAGE_KEY_T_HRV, &t->hrv, sizeof(t->hrv), true);
+    dict_write_int(out, MESSAGE_KEY_T_HRVSDNN, &t->hrvSDNN, sizeof(t->hrvSDNN), true);
     dict_write_cstring(out, MESSAGE_KEY_T_DATE, t->date);
   }
   int32_t cmd = 0;
@@ -54,30 +58,35 @@ void send_wellness(WellnessDay *y, WellnessDay *t) {
   }
 }
 
-void send_queued(void) {
-  if (!persist_exists(KEY_QUEUED_PENDING) || !persist_read_bool(KEY_QUEUED_PENDING)) return;
+bool send_queued(char *synced_date, size_t len) {
+  if (!persist_exists(KEY_QUEUED_PENDING) || !persist_read_bool(KEY_QUEUED_PENDING)) return false;
   WellnessDay y = {0};
   WellnessDay tt = {0};
   if (persist_exists(KEY_QUEUED_Y_DATE)) persist_read_string(KEY_QUEUED_Y_DATE, y.date, sizeof(y.date));
-  if (persist_exists(KEY_QUEUED_Y_STEPS)) y.steps = persist_read_int(KEY_QUEUED_Y_STEPS);
-  if (persist_exists(KEY_QUEUED_Y_SLEEP)) y.sleep = persist_read_int(KEY_QUEUED_Y_SLEEP);
-  if (persist_exists(KEY_QUEUED_Y_RHR)) y.rhr = persist_read_int(KEY_QUEUED_Y_RHR);
-  if (persist_exists(KEY_QUEUED_Y_SHR)) y.shr = persist_read_int(KEY_QUEUED_Y_SHR);
+  y.rhr = persist_read_int(KEY_QUEUED_Y_RHR);
+  y.shr = persist_read_int(KEY_QUEUED_Y_SHR);
+  y.steps = persist_read_int(KEY_QUEUED_Y_STEPS);
+  y.sleep = persist_read_int(KEY_QUEUED_Y_SLEEP);
   if (persist_exists(KEY_QUEUED_Y_SCORE)) y.sleepScore = persist_read_int(KEY_QUEUED_Y_SCORE);
   if (persist_exists(KEY_QUEUED_Y_QUALITY)) y.sleepQuality = persist_read_int(KEY_QUEUED_Y_QUALITY);
-  if (persist_exists(KEY_QUEUED_T_DATE)) persist_read_string(KEY_QUEUED_T_DATE, tt.date, sizeof(tt.date));
-  if (persist_exists(KEY_QUEUED_T_STEPS)) tt.steps = persist_read_int(KEY_QUEUED_T_STEPS);
-  if (persist_exists(KEY_QUEUED_T_SLEEP)) tt.sleep = persist_read_int(KEY_QUEUED_T_SLEEP);
-  if (persist_exists(KEY_QUEUED_T_RHR)) tt.rhr = persist_read_int(KEY_QUEUED_T_RHR);
-  if (persist_exists(KEY_QUEUED_T_SHR)) tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
-  if (persist_exists(KEY_QUEUED_T_SCORE)) tt.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
-  if (persist_exists(KEY_QUEUED_T_QUALITY)) tt.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
-  if (y.date[0] == '\0' && tt.date[0] == '\0') return;
-  s_cached_y = y;
-  s_cached_t = tt;
-  s_has_cache = true;
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "retry queued y %s %d t %s %d", y.date, y.steps, tt.date, tt.steps);
+  if (persist_exists(KEY_QUEUED_Y_HRV)) y.hrv = persist_read_int(KEY_QUEUED_Y_HRV);
+  if (persist_exists(KEY_QUEUED_Y_HRVSDNN)) y.hrvSDNN = persist_read_int(KEY_QUEUED_Y_HRVSDNN);
+  if (persist_exists(KEY_QUEUED_T_DATE)) {
+    persist_read_string(KEY_QUEUED_T_DATE, tt.date, sizeof(tt.date));
+    tt.rhr = persist_read_int(KEY_QUEUED_T_RHR);
+    tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
+    if (persist_exists(KEY_QUEUED_T_SCORE)) tt.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);
+    if (persist_exists(KEY_QUEUED_T_QUALITY)) tt.sleepQuality = persist_read_int(KEY_QUEUED_T_QUALITY);
+    if (persist_exists(KEY_QUEUED_T_HRV)) tt.hrv = persist_read_int(KEY_QUEUED_T_HRV);
+    if (persist_exists(KEY_QUEUED_T_HRVSDNN)) tt.hrvSDNN = persist_read_int(KEY_QUEUED_T_HRVSDNN);
+  }
+  if (y.date[0] == '\0' && tt.date[0] == '\0') return false;
+  if (y.date[0] && len > 0) {
+    strncpy(synced_date, y.date, len - 1);
+    synced_date[len - 1] = '\0';
+  }
   send_wellness(y.date[0] ? &y : NULL, tt.date[0] ? &tt : NULL);
+  return true;
 }
 
 void queue_wellness(WellnessDay *y, WellnessDay *t) {
@@ -89,6 +98,8 @@ void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_Y_SHR, y->shr);
     persist_write_int(KEY_QUEUED_Y_SCORE, y->sleepScore);
     persist_write_int(KEY_QUEUED_Y_QUALITY, y->sleepQuality);
+    persist_write_int(KEY_QUEUED_Y_HRV, y->hrv);
+    persist_write_int(KEY_QUEUED_Y_HRVSDNN, y->hrvSDNN);
   } else {
     persist_delete(KEY_QUEUED_Y_DATE);
   }
@@ -100,6 +111,8 @@ void queue_wellness(WellnessDay *y, WellnessDay *t) {
     persist_write_int(KEY_QUEUED_T_SHR, t->shr);
     persist_write_int(KEY_QUEUED_T_SCORE, t->sleepScore);
     persist_write_int(KEY_QUEUED_T_QUALITY, t->sleepQuality);
+    persist_write_int(KEY_QUEUED_T_HRV, t->hrv);
+    persist_write_int(KEY_QUEUED_T_HRVSDNN, t->hrvSDNN);
   } else {
     persist_delete(KEY_QUEUED_T_DATE);
   }

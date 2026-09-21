@@ -4,6 +4,7 @@
 #include "schedule.h"
 #include "ui.h"
 #include "queue.h"
+#include "health.h"
 
 void inbox_received_handler(DictionaryIterator *iter, void *ctx) {
   Tuple *t;

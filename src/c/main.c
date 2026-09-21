@@ -13,6 +13,9 @@ static void init(void) {
   app_message_register_outbox_failed(outbox_failed_handler);
   app_message_register_outbox_sent(outbox_sent_handler);
   app_message_open(512, 512);
+  persist_delete(KEY_QUEUED_Y_DATE);
+  persist_delete(KEY_QUEUED_T_DATE);
+  persist_delete(KEY_QUEUED_PENDING);
   s_wakeup_launch = (launch_reason() == APP_LAUNCH_WAKEUP);
   wakeup_service_subscribe(wakeup_handler);
   if (s_wakeup_launch) {
@@ -20,6 +23,7 @@ static void init(void) {
     if (wakeup_get_launch_event(&id, &cookie)) wakeup_handler(id, cookie);
     else { s_pending_wakeup = true; schedule_wakeup(); }
   } else schedule_wakeup();
+  hrv_sampling_update();
   s_window = window_create();
   window_set_background_color(s_window, GColorBlack);
   window_set_click_config_provider(s_window, click_config_provider);
