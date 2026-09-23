@@ -79,10 +79,16 @@ void format_sleep(int secs, char *buf, size_t len) {
   else snprintf(buf, len, "%dh%02dm sleep", secs / 3600, (secs % 3600) / 60);
 }
 
+static int calc_duration_score(int total) {
+  if (total <= 0) return 0;
+  if (total < 14400) return total * 100 / 36000;
+  if (total < 25200) return 40 + (total - 14400) * 60 / 10800;
+  return 100;
+}
+
 int calc_sleep_score(int total, int restful, int rhr, int shr) {
   if (total <= 0) return 0;
-  int durationScore = total * 100 / 28800;
-  if (durationScore > 100) durationScore = 100;
+  int durationScore = calc_duration_score(total);
   int restfulScore;
   if (restful <= 0) restfulScore = 50;
   else {
@@ -99,7 +105,7 @@ int calc_sleep_score(int total, int restful, int rhr, int shr) {
     if (hrScore < 0) hrScore = 0;
     if (hrScore > 100) hrScore = 100;
   }
-  int score = (durationScore * 40 + restfulScore * 35 + hrScore * 25) / 100;
+  int score = (durationScore * 65 + restfulScore * 20 + hrScore * 15) / 100;
   if (score < 0) score = 0;
   if (score > 100) score = 100;
   return score;
@@ -107,8 +113,7 @@ int calc_sleep_score(int total, int restful, int rhr, int shr) {
 
 int calc_sleep_score_no_hr(int total, int restful) {
   if (total <= 0) return 0;
-  int durationScore = total * 100 / 28800;
-  if (durationScore > 100) durationScore = 100;
+  int durationScore = calc_duration_score(total);
   int restfulScore;
   if (restful <= 0) restfulScore = 50;
   else {
@@ -116,7 +121,7 @@ int calc_sleep_score_no_hr(int total, int restful) {
     restfulScore = ratioPct * 100 / 25;
     if (restfulScore > 100) restfulScore = 100;
   }
-  int score = (durationScore * 60 + restfulScore * 40) / 100;
+  int score = (durationScore * 70 + restfulScore * 30) / 100;
   if (score < 0) score = 0;
   if (score > 100) score = 100;
   return score;
