@@ -11,6 +11,8 @@
 #define PPI_BUF_SIZE 64
 #define BURST_BUF_SIZE 50
 #define SLEEP_EVENT_IDLE_SECS (10 * 60)
+#define MIN_BURSTS 4
+#define MIN_SESSION_SECS (2 * 3600)
 
 static bool s_hrv_sampling = false;
 static uint16_t s_ppi_buf[PPI_BUF_SIZE];
@@ -18,10 +20,11 @@ static int s_ppi_cnt = 0;
 static int s_burst_rmssd[BURST_BUF_SIZE];
 static int s_burst_sdnn[BURST_BUF_SIZE];
 static int s_burst_cnt = 0;
-static bool s_was_active = false;
+static bool s_finalized = false;
 static bool s_restore_idle_done = false;
 static bool s_sleeping = false;
 static time_t s_last_sleep_event_utc = 0;
+static time_t s_session_start_utc = 0;
 
 // Static temp arrays to avoid stack allocation
 static int s_tmp_rmssd[BURST_BUF_SIZE];
@@ -81,6 +84,7 @@ static void burst_end(void) {
   int rmssd, sdnn;
   calc_rmssd_sdnn(s_ppi_buf, s_ppi_cnt, &rmssd, &sdnn);
   if (rmssd > 0 && s_burst_cnt < BURST_BUF_SIZE) {
+    if (s_burst_cnt == 0) s_session_start_utc = time(NULL);
     s_burst_rmssd[s_burst_cnt] = rmssd;
     s_burst_sdnn[s_burst_cnt] = sdnn;
     s_burst_cnt++;
@@ -95,10 +99,17 @@ static void burst_end(void) {
 }
 
 static void night_end(struct tm *tick_time) {
-  if (s_burst_cnt == 0) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end cnt 0");
-    return;
+  bool reject = false;
+  if (s_burst_cnt < MIN_BURSTS) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end %d bursts too few (min %d) - keeping ring", s_burst_cnt, MIN_BURSTS);
+    reject = true;
   }
+  time_t now = time(NULL);
+  if (!reject && s_session_start_utc > 0 && (now - s_session_start_utc) < MIN_SESSION_SECS) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "night_end session too short (%lds) - keeping ring", (long)(now - s_session_start_utc));
+    reject = true;
+  }
+  if (reject) return;
   for (int i = 0; i < s_burst_cnt; i++) {
     s_tmp_rmssd[i] = s_burst_rmssd[i];
     s_tmp_sdnn[i] = s_burst_sdnn[i];
@@ -117,6 +128,7 @@ static void night_end(struct tm *tick_time) {
   }
   persist_write_int(KEY_HRV_RING_CNT, 0);
   s_burst_cnt = 0;
+  s_session_start_utc = 0;
 }
 
 // Quickselect median - O(n) average, minimal stack
@@ -179,10 +191,18 @@ static void restore_bursts(void) {
   persist_read_data(KEY_HRV_RING_RMSSD, s_burst_rmssd, sz_r);
   persist_read_data(KEY_HRV_RING_SDNN, s_burst_sdnn, sz_s);
   s_burst_cnt = cnt;
+  s_session_start_utc = time(NULL);
   APP_LOG(APP_LOG_LEVEL_DEBUG, "restore_bursts cnt %d", cnt);
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+  // Authoritative sleep state each tick: the 10-minute idle window can no
+  // longer expire mid-night just because the health service stops re-emitting
+  // SleepUpdate events during settled sleep.
+  if (health_service_peek_current_activities() & HealthActivitySleep) {
+    s_sleeping = true;
+    s_last_sleep_event_utc = time(NULL);
+  }
   bool active = sleep_active();
   bool duty = duty_active();
   bool should_sample = active && duty;
@@ -197,21 +217,26 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     burst_end();
     APP_LOG(APP_LOG_LEVEL_DEBUG, "sampling OFF active=%d duty=%d", active, duty);
   }
-  if (!active && s_was_active) {
+
+  // Finalize a finished night once per inactive stretch (worst case: the ring
+  // survives a too-thin/too-short attempt and the same session continues).
+  if (!active && s_burst_cnt > 0 && !s_finalized) {
+    s_finalized = true;
     if (s_ppi_cnt > 0) burst_end();
     night_end(tick_time);
-  } else if (!active && !s_was_active && s_burst_cnt == 0 && !s_restore_idle_done) {
+  } else if (!active && s_burst_cnt == 0 && !s_restore_idle_done) {
     s_restore_idle_done = true;
     restore_bursts();
     if (s_burst_cnt > 0) {
+      s_finalized = true;
       if (s_ppi_cnt > 0) burst_end();
       night_end(tick_time);
     }
-  } else if (!active && s_burst_cnt > 0) {
-    if (s_ppi_cnt > 0) burst_end();
-    night_end(tick_time);
   }
-  s_was_active = active;
+  // A new active stretch after a finalize starts a fresh session.
+  if (active && s_finalized) {
+    s_finalized = false;
+  }
 }
 #endif
 
