@@ -292,16 +292,52 @@ The three layers disagree, and conflating them is the trap:
 | Layer | SpO2 support | Evidence |
 | ----- | ------------ | -------- |
 | Hardware | ✅ yes | emery uses a GH3X2X optical module with green (HR/HRV) + red/IR (SpO2) LED slots |
-| Firmware | ✅ yes | PebbleOS `main` has `activity_prefs_blood_oxygen_is_enabled()`, `activity_prefs_get/set_spo2_measurement_interval()` (default `HRMonitoringInterval_10Min`), a Settings → Health → "Blood Oxygen" toggle, and per-minute logging: `ALG_DLS_MINUTES_RECORD_VERSION` = 14 adds `spo2_percent` + `spo2_quality` to `AlgMinuteDLSSample` |
-| Public SDK | ❌ **no** | `HealthMetric` has exactly 9 members, no oxygen (`sdk-core/pebble/<plat>/include/pebble.h`). `HealthEventType` has 6, no SpO2 event. Zero hits for oxygen/spo2/pulse_ox under `sdk-core/pebble/*/include` |
+| Firmware | ✅ yes | PebbleOS `main` has `activity_prefs_blood_oxygen_is_enabled()` and friends, default `HRMonitoringInterval_10Min`, plus per-minute logging of `spo2_percent` + `spo2_quality` |
+| Public SDK | ❌ **no** | `HealthMetric` has exactly 9 members, no oxygen. `HealthEventType` has 6, no SpO2 event. Zero hits for oxygen/spo2/pulse_ox across all five platforms' public headers |
 
-A plain SDK upgrade will **not** fix this. The firmware's own `ActivityMetric` enum — the one
-`HealthMetric` mirrors — has no oxygen member either (it ends at
-`ActivityMetricHeartRateZone3Minutes`). This needs a deliberate new API, not a regeneration.
+All of the above re-verified against `main` on 2026-09-29 (firmware **v4.38.4**). Cite these
+paths — the old ones 404:
+
+| Symbol | Location on `main` |
+| ------ | ------------------- |
+| `activity_prefs_blood_oxygen_is_enabled()` / `_set_blood_oxygen_enabled()` | `include/pbl/services/activity/activity.h:429` / `:452` |
+| `activity_prefs_get/set_spo2_measurement_interval()` | same file, `:459` / `:463` |
+| `activity_prefs_blood_oxygen_activity_tracking_is_enabled()` | same file, `:434` — **second, independent opt-in** |
+| `ACTIVITY_SPO2_DEFAULT_PREFERENCES` = `HRMonitoringInterval_10Min` | same file, `:111` |
+| `ALG_DLS_MINUTES_RECORD_VERSION 14` = "Added SpO2 percent and quality" | `include/pbl/services/activity/activity_algorithm.h:62` |
+| `spo2_percent` / `spo2_quality` (quality reuses the `HeartRateQuality` enum) | same file, `:90-91` |
+| `activity_metrics_prv_get_spo2_sample(percent_out, quality_out)` | `src/fw/services/activity/activity_metrics.c:557` |
+
+⚠️ The activity tree was refactored to a CMake/`include/pbl` layout. `src/fw/services/normal/activity/`
+no longer exists — don't grep the pre-refactor paths.
+
+A plain SDK upgrade will **not** fix this, and the reason is structural rather than an oversight:
+SpO2 is deliberately routed **outside** the `ActivityMetric` enum, which has **23 members and zero
+oxygen members** (it ends at `ActivityMetricHeartRateZone3Minutes` → `ActivityMetricNumMetrics`).
+SpO2 is surfaced by a standalone `activity_metrics_prv_get_spo2_sample()`. Since the SDK's
+`HealthMetric` mirrors that enum, the enum has to gain a member before any header change can expose
+it — this is a deliberate new API, not a regeneration.
 
 The unmerged PR `coredevices/PebbleOS#1607` was **closed without merging** on 2026-09-08, yet its
 code is present in `main` (a maintainer re-landed it). `coredevices/mobileapp#267` is still open,
 so nothing surfaces SpO2 to the user yet either.
+
+### Two opt-ins, not one
+
+A future implementation that only calls `activity_prefs_set_blood_oxygen_enabled()` will get daily
+monitoring but **nothing during detected activities**. There are two independent gates:
+
+- `activity_prefs_set_blood_oxygen_enabled()` — daily SpO2 monitoring
+- `activity_prefs_set_blood_oxygen_activity_tracking_enabled()` — SpO2 sampling while an activity
+  is detected (walk/run)
+
+Also note the split ownership: the on/off bit is **synced from the phone** under
+`PREF_KEY_BLOOD_OXYGEN_PREFERENCES`; only the measurement interval is watch-local. So a watch-side
+write of the on/off bit can be clobbered by the phone.
+
+⚠️ Open firmware-side question from the PR thread: `prv_activity_spo2_deinit` appears to pause both
+the activity algorithm and workout HR, then unpause only the activity one — an asymmetry a reviewer
+flagged. Unresolved as far as the discussion shows; re-check before relying on teardown behaviour.
 
 ### The trigger to watch for
 
@@ -310,6 +346,23 @@ A new SDK release where `sdk-core/pebble/<plat>/include/pebble_sdk_version.h` ga
 a blood-oxygen member. Check with `pebble sdk list` (4.33.1 was newest as of 2026-09-29; 4.33.1 is
 also what this repo builds against).
 
+⚠️ There are **three separate version tracks**, and reading the wrong one will convince you the SDK
+shipped something it didn't:
+
+| Track | Latest | Where |
+| ----- | ------ | ----- |
+| App SDK (`sdk-core`) | **4.33.1** | `https://sdk.repebble.com` — what `pebble sdk install` fetches |
+| Firmware | v4.38.4 | `coredevices/PebbleOS` GitHub Releases — **firmware images only** |
+| `main`'s in-dev SDK | `SDK_VERSION` = `0.1.10` | New CMake/`include/pbl` generation, not the shipped 4.x waf SDK |
+
+The GitHub Releases page looks authoritative and its tags look newer than 4.33.1, but it publishes
+**zero** `pebble-sdk*.zip` assets — every asset is `firmware_*`/`normal_*`/`prf_*`/`recovery_*`/
+`qemu_*`/`sdkshell_*`. Do not use it to judge app-SDK age. Re-check the real ceiling in one call:
+
+```bash
+curl -s 'https://sdk.repebble.com/v1/files/sdk-core?channel='   # authoritative SDK list
+```
+
 For calibration on how the gate behaves: `PBL_API_EXISTS(x)` expands to
 `defined(_PBL_API_EXISTS_##x)`, and of the five platforms targeted here
 **only `emery` and `gabbro` define `_PBL_API_EXISTS_health_service_peek_hrv_ppi_ms`**. The other
@@ -317,10 +370,19 @@ three compile the HRV path out entirely.
 
 ### Constraint that will bite when it lands
 
-The green HR/HRV path and the red/IR SpO2 path **contend for the same sensor** — the firmware
-serialises them with `HRM_PATH_MAX_SLICE_SEC 30` and alternates the conflict winner. This repo's
-worker already holds the sensor 3 minutes of every 15 during sleep (`health.c:55`). A future SpO2
-sampler must interleave into the off-window rather than compete with HRV sampling.
+The green HR/HRV path and the red/IR SpO2 path **contend for the same optical sensor**. The
+firmware ships a purpose-built yield for exactly this:
+`activity_algorithm_activity_hrm_set_paused(bool)` — *"Pause or resume the continuous activity HRM
+session so the optical path is free for a periodic SpO2 reading during an activity"* — with
+`activity_algorithm_activity_hrm_is_active()` to tell you when a session is running
+(`include/pbl/services/activity/activity_algorithm.h:173,177`).
+
+This repo's worker already holds the sensor 3 minutes of every 15 during sleep (`health.c:55`), so a
+future SpO2 sampler must **hand the sensor over deliberately** rather than compete for it — and
+outside activities it should follow the same pattern during the worker's off-window.
+
+Note the asymmetry to expect: that pause call is a no-op when no activity HR session is active, so
+"pause then read" is only valid while an activity is actually being tracked.
 
 ### If/when the API appears
 
@@ -357,6 +419,12 @@ Hard constraints:
 - **`version` format** — must be `major.minor.0`; the patch segment is reserved and must be `0`
 - **Round displays** — `chalk` and `gabbro` are circular; use `grect_inset()` and `PBL_ROUND` guards to avoid drawing outside the visible circle
 - **`layer_mark_dirty()`** — queues a redraw; actual drawing happens in the `layer_update_proc` callback, not immediately
+- **The GitHub Releases page cannot tell you the app-SDK version.** `coredevices/PebbleOS` releases
+  (v4.38.x) are **firmware** and publish zero `pebble-sdk*.zip` — every asset is
+  `firmware_*`/`normal_*`/`prf_*`/`recovery_*`/`qemu_*`/`sdkshell_*`. The app SDK is distributed
+  separately from `https://sdk.repebble.com` and its latest is 4.33.1. Checking the wrong one makes
+  it look like the SDK shipped something new when it didn't. One call gets the truth:
+  `curl -s 'https://sdk.repebble.com/v1/files/sdk-core?channel='`
 - **Never hoist `ctx.path.ant_glob()` out of the `wscript` platform loop** — waf caches the node
   list per-env, so one shared list makes each worker's link pull in *every* platform's generated
   `appinfo`/`resource_ids`/`message_keys` objects and fail with dozens of `multiple definition of`
