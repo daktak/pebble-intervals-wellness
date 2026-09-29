@@ -38,6 +38,7 @@ jobs:
           mkdir -p build
           docker run --rm --platform linux/amd64 \
             -v "$(pwd)/src:/app/src:ro" \
+            -v "$(pwd)/worker_src:/app/worker_src:ro" \
             -v "$(pwd)/resources:/app/resources:ro" \
             -v "$(pwd)/package.json:/app/package.json:ro" \
             -v "$(pwd)/wscript:/app/wscript:ro" \

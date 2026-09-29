@@ -283,6 +283,72 @@ the worker immediately faulted again:
 The worker cannot run in the emulator, so every worker change requires a physical watch
 install + `logs.txt` capture for validation.
 
+## SpO2 / Blood Oxygen — hardware yes, SDK no (as of 2026-09-29)
+
+**Do not write SpO2 collection code against the current SDK. There is no API to call.**
+
+The three layers disagree, and conflating them is the trap:
+
+| Layer | SpO2 support | Evidence |
+| ----- | ------------ | -------- |
+| Hardware | ✅ yes | emery uses a GH3X2X optical module with green (HR/HRV) + red/IR (SpO2) LED slots |
+| Firmware | ✅ yes | PebbleOS `main` has `activity_prefs_blood_oxygen_is_enabled()`, `activity_prefs_get/set_spo2_measurement_interval()` (default `HRMonitoringInterval_10Min`), a Settings → Health → "Blood Oxygen" toggle, and per-minute logging: `ALG_DLS_MINUTES_RECORD_VERSION` = 14 adds `spo2_percent` + `spo2_quality` to `AlgMinuteDLSSample` |
+| Public SDK | ❌ **no** | `HealthMetric` has exactly 9 members, no oxygen (`sdk-core/pebble/<plat>/include/pebble.h`). `HealthEventType` has 6, no SpO2 event. Zero hits for oxygen/spo2/pulse_ox under `sdk-core/pebble/*/include` |
+
+A plain SDK upgrade will **not** fix this. The firmware's own `ActivityMetric` enum — the one
+`HealthMetric` mirrors — has no oxygen member either (it ends at
+`ActivityMetricHeartRateZone3Minutes`). This needs a deliberate new API, not a regeneration.
+
+The unmerged PR `coredevices/PebbleOS#1607` was **closed without merging** on 2026-09-08, yet its
+code is present in `main` (a maintainer re-landed it). `coredevices/mobileapp#267` is still open,
+so nothing surfaces SpO2 to the user yet either.
+
+### The trigger to watch for
+
+A new SDK release where `sdk-core/pebble/<plat>/include/pebble_sdk_version.h` gains an
+`_PBL_API_EXISTS_<spo2 symbol>` line, and/or `pebble.h`'s `HealthMetric` / `HealthEventType` gains
+a blood-oxygen member. Check with `pebble sdk list` (4.33.1 was newest as of 2026-09-29; 4.33.1 is
+also what this repo builds against).
+
+For calibration on how the gate behaves: `PBL_API_EXISTS(x)` expands to
+`defined(_PBL_API_EXISTS_##x)`, and of the five platforms targeted here
+**only `emery` and `gabbro` define `_PBL_API_EXISTS_health_service_peek_hrv_ppi_ms`**. The other
+three compile the HRV path out entirely.
+
+### Constraint that will bite when it lands
+
+The green HR/HRV path and the red/IR SpO2 path **contend for the same sensor** — the firmware
+serialises them with `HRM_PATH_MAX_SLICE_SEC 30` and alternates the conflict winner. This repo's
+worker already holds the sensor 3 minutes of every 15 during sleep (`health.c:55`). A future SpO2
+sampler must interleave into the off-window rather than compete with HRV sampling.
+
+### If/when the API appears
+
+Intervals.icu is already ready. `spO2` is a real built-in wellness field — a **float, 0-100 %,
+one representative value per day** (official OpenAPI: `"spO2": {"type":"number","format":"float"}`).
+Hard constraints:
+
+- **No min, no avg, no series.** Per MedTechCD: *"a wellness field is a single value."* Duplicate
+  rows for the same date are rejected, so the day's readings must be reduced on-device first.
+- **Agreed reduction for this project: median of the day's accepted readings.** This matches the
+  Garmin Health Snapshot and WHOOP convention and is robust to motion-artifact outliers. The
+  worker already has `quickselect_median` to reuse. (Google Fit instead sends the day's *first*
+  reading; nobody sends a minimum.)
+- **Quality-gate before averaging.** The firmware exposes an `HRMQuality` scale
+  (OffWrist/Worst/Poor/Acceptable/Good/Excellent) — reject OffWrist and reject below Acceptable, or
+  an off-wrist watch will write garbage into Intervals every day.
+- **`spO2` is display-only** — it does not feed CTL/ATL or any Intervals wellness score.
+- **`"locked": true`** stops a connected-device sync from reverting our write (MedTechCD: *"the one
+  that updates last will overwrite the former one"*). Deliberately **not** set today: it blocks ALL
+  field updates from other devices for that day, so it is only safe if Pebble is the sole source.
+  Decide once we know what else syncs to the account.
+- For desaturation burden, use a **custom wellness field** (`MinSpO2`, `SpO2LowEvents`) — UpperCamelCase
+  codes, created once in the Intervals.icu web UI. Unverified: whether `wellness-bulk` accepts a
+  custom field inside its array, and whether `locked: true` survives a later device sync.
+- Confirmed already-correct: `sleepScore`, `sleepQuality`, and `readiness` are **not** computed by
+  Intervals.icu, so the values this app uploads are accepted and stick. Rate limits are a non-issue
+  (2 requests/day against a 5000/day API-key budget).
+
 ## Common Gotchas
 
 - **UUID must be unique** — reusing a UUID causes app rejection on installation; generate a new one per project with `uuidgen`
@@ -291,3 +357,13 @@ install + `logs.txt` capture for validation.
 - **`version` format** — must be `major.minor.0`; the patch segment is reserved and must be `0`
 - **Round displays** — `chalk` and `gabbro` are circular; use `grect_inset()` and `PBL_ROUND` guards to avoid drawing outside the visible circle
 - **`layer_mark_dirty()`** — queues a redraw; actual drawing happens in the `layer_update_proc` callback, not immediately
+- **Never hoist `ctx.path.ant_glob()` out of the `wscript` platform loop** — waf caches the node
+  list per-env, so one shared list makes each worker's link pull in *every* platform's generated
+  `appinfo`/`resource_ids`/`message_keys` objects and fail with dozens of `multiple definition of`
+  errors. Use a plain `glob.glob()` for any file-existence probe and keep the real `ant_glob`
+  inside the loop.
+- **The worker only gets built if `worker_src/c/*.c` is visible to the build.** `Makefile` and
+  `.github/workflows/pebble.yml` mount it explicitly; if a future change forgets, the app still
+  builds and ships — just with no HRV collection. `wscript` now prints a `WARNING` in that case,
+  so check the build log rather than assuming the worker is in the `.pbw`. Verify with
+  `unzip -l build/*.pbw | grep worker` or the `worker` block in each `manifest.json`.

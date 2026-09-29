@@ -1,4 +1,4 @@
-import os.path
+import glob as _glob
 
 top = '.'
 out = 'build'
@@ -15,8 +15,17 @@ def configure(ctx):
 def build(ctx):
     ctx.load('pebble_sdk')
 
-    build_worker = os.path.exists('worker_src')
+    # Plain filesystem probe, deliberately not ctx.path.ant_glob. ant_glob results are cached
+    # per-env, so hoisting one shared list out of the platform loop makes every worker's link
+    # pull in every other platform's generated appinfo/resource_ids/message_keys objects.
+    # The real ant_glob call below MUST stay inside the loop.
+    build_worker = bool(_glob.glob('worker_src/c/**/*.c', recursive=True))
     binaries = []
+
+    if not build_worker:
+        print('WARNING: no worker_src/c/*.c found -- building app WITHOUT the worker.')
+        print('WARNING: HRV collection will be silently absent from this build.')
+        print('WARNING: for container builds, check that worker_src is mounted.')
 
     cached_env = ctx.env
     for platform in ctx.env.TARGET_PLATFORMS:

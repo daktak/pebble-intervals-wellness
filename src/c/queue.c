@@ -73,6 +73,8 @@ bool send_queued(char *synced_date, size_t len) {
   if (persist_exists(KEY_QUEUED_Y_HRVSDNN)) y.hrvSDNN = persist_read_int(KEY_QUEUED_Y_HRVSDNN);
   if (persist_exists(KEY_QUEUED_T_DATE)) {
     persist_read_string(KEY_QUEUED_T_DATE, tt.date, sizeof(tt.date));
+    tt.steps = persist_read_int(KEY_QUEUED_T_STEPS);
+    tt.sleep = persist_read_int(KEY_QUEUED_T_SLEEP);
     tt.rhr = persist_read_int(KEY_QUEUED_T_RHR);
     tt.shr = persist_read_int(KEY_QUEUED_T_SHR);
     if (persist_exists(KEY_QUEUED_T_SCORE)) tt.sleepScore = persist_read_int(KEY_QUEUED_T_SCORE);

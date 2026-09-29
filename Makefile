@@ -16,6 +16,7 @@ docker-run: docker-build
 	mkdir -p build
 	docker run --rm --platform linux/amd64 \
 		-v "$(PWD)/src:/app/src:ro" \
+		-v "$(PWD)/worker_src:/app/worker_src:ro" \
 		-v "$(PWD)/resources:/app/resources:ro" \
 		-v "$(PWD)/package.json:/app/package.json:ro" \
 		-v "$(PWD)/wscript:/app/wscript:ro" \
