@@ -287,6 +287,9 @@ install + `logs.txt` capture for validation.
 
 **Do not write SpO2 collection code against the current SDK. There is no API to call.**
 
+Short version: the sensor → algorithm → driver → activity chain is **complete and merged**. Only the
+**app-facing export is missing**, and the HRV precedent shows that is a small, precedented change.
+
 The three layers disagree, and conflating them is the trap:
 
 | Layer | SpO2 support | Evidence |
@@ -311,16 +314,42 @@ paths — the old ones 404:
 ⚠️ The activity tree was refactored to a CMake/`include/pbl` layout. `src/fw/services/normal/activity/`
 no longer exists — don't grep the pre-refactor paths.
 
-A plain SDK upgrade will **not** fix this, and the reason is structural rather than an oversight:
-SpO2 is deliberately routed **outside** the `ActivityMetric` enum, which has **23 members and zero
-oxygen members** (it ends at `ActivityMetricHeartRateZone3Minutes` → `ActivityMetricNumMetrics`).
-SpO2 is surfaced by a standalone `activity_metrics_prv_get_spo2_sample()`. Since the SDK's
-`HealthMetric` mirrors that enum, the enum has to gain a member before any header change can expose
-it — this is a deliberate new API, not a regeneration.
+A plain SDK upgrade will **not** fix this. The block is the SDK **export list**, not a header:
+`tools/generate_native_sdk/exported_symbols.json` on `main` is at **revision 109** with 33
+exports, and it contains **zero** SpO2 entries. Everything below the app boundary already exists —
+Goodix algorithm hook `GH3X2X_Spo2AlgorithmResultReport()`, driver
+`gh3x2x_spo2_result_report()` (`src/fw/drivers/hrm/gh3x2x.c:171`), 49 SpO2 references in
+`src/fw/services/hrm/hrm_manager.c` (feature gating + red/IR-vs-green arbitration), and the
+activity layer. What is missing is a public accessor plus an export entry.
+
+❌ **A common wrong theory: "the `ActivityMetric` enum must gain a member first."** The enum does
+have 23 members and zero oxygen (it ends at `ActivityMetricHeartRateZone3Minutes` →
+`ActivityMetricNumMetrics`), and SpO2 is surfaced by a private
+`activity_metrics_prv_get_spo2_sample()` rather than as an `ActivityMetric`. It is tempting to
+conclude the enum must change. **It must not.** The HRV work proves the app-facing path bypasses the
+enum entirely: `HealthMetric` in 4.33.1 has *no* HRV member, yet apps read HRV fine via a dedicated
+peek function. Don't go looking for an enum change.
 
 The unmerged PR `coredevices/PebbleOS#1607` was **closed without merging** on 2026-09-08, yet its
 code is present in `main` (a maintainer re-landed it). `coredevices/mobileapp#267` is still open,
 so nothing surfaces SpO2 to the user yet either.
+
+### The HRV precedent — the exact shape of the missing step
+
+HRV is the worked example. It is worth reading as a template for what SpO2 still needs:
+
+| Step | HRV (done) | SpO2 (not done) |
+| ---- | ---------- | --------------- |
+| Issue | [#1630](https://github.com/coredevices/PebbleOS/issues/1630) (closed 2026-07-30) | #1607 (closed unmerged) |
+| Firmware PR | `coredevices/PebbleOS#1670` | re-landed already |
+| Nonfree companion | `pebbleos-nonfree#6` (merged 2026-07-29) — filled the empty `GH3X2X_HrvAlgorithmResultReport()` stub | `pebbleos-nonfree#4` (SpO2 tuning), already merged |
+| SDK export | **rev 109**: `health_service_peek_hrv_ppi_ms()`, `health_service_set_hrv_sample_period()` | **nothing** |
+| Event type | `HealthEventHRVUpdate = 5` | — no SpO2 event |
+| `HealthMetric` member | **none** (proof the enum is irrelevant) | — |
+
+Note that HRV reused #1607's feature-gated `hrm_enable()` pattern rather than reinventing it, and
+PR #6's author observed that HRV rides the same green LEDs as HR. So the SpO2 bring-up that HRV
+built on is merged and proven — only the export step is outstanding.
 
 ### Two opt-ins, not one
 
@@ -341,9 +370,24 @@ flagged. Unresolved as far as the discussion shows; re-check before relying on t
 
 ### The trigger to watch for
 
-A new SDK release where `sdk-core/pebble/<plat>/include/pebble_sdk_version.h` gains an
-`_PBL_API_EXISTS_<spo2 symbol>` line, and/or `pebble.h`'s `HealthMetric` / `HealthEventType` gains
-a blood-oxygen member. Check with `pebble sdk list` (4.33.1 was newest as of 2026-09-29; 4.33.1 is
+The **earliest reliable signal** is the export list gaining a SpO2 function, which lands in `main`
+well before any SDK release ships:
+
+```bash
+# revision is currently 109, zero SpO2 entries as of 2026-09-29
+curl -s https://raw.githubusercontent.com/coredevices/PebbleOS/main/tools/generate_native_sdk/exported_symbols.json \
+  | grep -in 'spo2\|oxygen\|hrv'      # the hrv hits show exactly what to look for
+```
+
+Look for a `health_service_peek_spo2_*` / `health_service_set_spo2_*` pair plus a new
+`HealthEventType`. That file's own `_notes` require **two** co-bumped counters, so expect both:
+the export-list `revision`, and `PROCESS_INFO_CURRENT_SDK_VERSION_MINOR` in
+`pebble_process_info.h` (⚠️ I could not locate that header on `main` — likely renamed in the CMake
+refactor, so confirm its current home before relying on it).
+
+The app-facing confirmation comes one step later, in the shipped SDK: an
+`_PBL_API_EXISTS_<spo2 symbol>` line in `sdk-core/pebble/<plat>/include/pebble_sdk_version.h`.
+Check with `pebble sdk list` (4.33.1 was newest as of 2026-09-29; 4.33.1 is
 also what this repo builds against).
 
 ⚠️ There are **three separate version tracks**, and reading the wrong one will convince you the SDK
@@ -371,7 +415,16 @@ three compile the HRV path out entirely.
 ### Constraint that will bite when it lands
 
 The green HR/HRV path and the red/IR SpO2 path **contend for the same optical sensor**. The
-firmware ships a purpose-built yield for exactly this:
+firmware arbitrates this already: `src/fw/services/hrm/hrm_manager.c` has explicit red/IR-vs-green
+resolution and **SpO2 wins** whenever it is due.
+
+**Prefer asking over taking.** HRV's export pair includes `health_service_set_hrv_sample_period()`,
+so an app can *request* sampling rather than fight for the sensor. If SpO2 follows with a symmetric
+`health_service_set_spo2_sample_period()`, the contention problem largely disappears — the
+firmware's own manager schedules both and the app never has to arbitrate. Check for that function
+before hand-rolling anything.
+
+The manual fallback exists if no setter is exported:
 `activity_algorithm_activity_hrm_set_paused(bool)` — *"Pause or resume the continuous activity HRM
 session so the optical path is free for a periodic SpO2 reading during an activity"* — with
 `activity_algorithm_activity_hrm_is_active()` to tell you when a session is running
@@ -397,8 +450,11 @@ Hard constraints:
   worker already has `quickselect_median` to reuse. (Google Fit instead sends the day's *first*
   reading; nobody sends a minimum.)
 - **Quality-gate before averaging.** The firmware exposes an `HRMQuality` scale
-  (OffWrist/Worst/Poor/Acceptable/Good/Excellent) — reject OffWrist and reject below Acceptable, or
-  an off-wrist watch will write garbage into Intervals every day.
+  (OffWrist/Worst/Poor/Acceptable/Good/Excellent), and it already grades SpO2 for us: the driver
+  sets `hrm_data.spo2_quality` from the algorithm's confidence and invalid flag
+  (`src/fw/drivers/hrm/gh3x2x.c:194,196`). So a future `peek` should return firmware-graded values
+  — reject OffWrist and reject below Acceptable, or an off-wrist watch will write garbage into
+  Intervals every day. Do not invent a second, private quality scale.
 - **`spO2` is display-only** — it does not feed CTL/ATL or any Intervals wellness score.
 - **`"locked": true`** stops a connected-device sync from reverting our write (MedTechCD: *"the one
   that updates last will overwrite the former one"*). Deliberately **not** set today: it blocks ALL
