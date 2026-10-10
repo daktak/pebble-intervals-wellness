@@ -38,6 +38,15 @@ void inbox_received_handler(DictionaryIterator *iter, void *ctx) {
         persist_read_string(KEY_QUEUED_Y_DATE, q, sizeof(q));
         persist_write_string(KEY_LAST_SYNC_DATE, q);
       }
+      if (persist_exists(KEY_QUEUED_T_DATE)) {
+        char q[12];
+        persist_read_string(KEY_QUEUED_T_DATE, q, sizeof(q));
+        persist_write_string(KEY_HRV_POSTED_DATE, q);
+      } else if (persist_exists(KEY_QUEUED_Y_DATE)) {
+        char q[12];
+        persist_read_string(KEY_QUEUED_Y_DATE, q, sizeof(q));
+        persist_write_string(KEY_HRV_POSTED_DATE, q);
+      }
       persist_write_bool(KEY_QUEUED_PENDING, false);
       if (s_wakeup_launch) {
         if (!s_exit_timer) s_exit_timer = app_timer_register(2000, exit_timer_callback, NULL);

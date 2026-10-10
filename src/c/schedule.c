@@ -82,14 +82,11 @@ void try_daily_sync(bool force) {
       WellnessDay *py = NULL;
       if (force) py = &y;
       queue_wellness(py, &tt);
-      persist_write_string(KEY_HRV_POSTED_DATE, y.date);
       return;
     }
-    persist_write_string(KEY_HRV_POSTED_DATE, y.date);
     return;
   }
   queue_wellness(&y, &tt);
-  persist_write_string(KEY_HRV_POSTED_DATE, y.date);
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
