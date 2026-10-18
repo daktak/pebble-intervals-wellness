@@ -38,6 +38,18 @@ void inbox_received_handler(DictionaryIterator *iter, void *ctx) {
         persist_read_string(KEY_QUEUED_Y_DATE, q, sizeof(q));
         persist_write_string(KEY_LAST_SYNC_DATE, q);
       }
+      // HRV is attributed to its waking date (the queued T record). Only mark it
+      // posted once the phone confirms the upload, so a no-phone/no-net attempt
+      // leaves it eligible for a later manual or scheduled retry.
+      char hrv_date[12] = {0};
+      if (persist_exists(KEY_QUEUED_T_HRV) && persist_read_int(KEY_QUEUED_T_HRV) > 0 &&
+          persist_exists(KEY_QUEUED_T_DATE)) {
+        persist_read_string(KEY_QUEUED_T_DATE, hrv_date, sizeof(hrv_date));
+      } else if (persist_exists(KEY_QUEUED_Y_HRV) && persist_read_int(KEY_QUEUED_Y_HRV) > 0 &&
+                 persist_exists(KEY_QUEUED_Y_DATE)) {
+        persist_read_string(KEY_QUEUED_Y_DATE, hrv_date, sizeof(hrv_date));
+      }
+      if (hrv_date[0]) persist_write_string(KEY_HRV_POSTED_DATE, hrv_date);
       persist_write_bool(KEY_QUEUED_PENDING, false);
       if (s_wakeup_launch) {
         if (!s_exit_timer) s_exit_timer = app_timer_register(2000, exit_timer_callback, NULL);

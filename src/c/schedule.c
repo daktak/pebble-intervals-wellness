@@ -67,14 +67,19 @@ void try_daily_sync(bool force) {
   strncpy(s_y_date, y.date, sizeof(s_y_date));
   strncpy(s_t_date, tt.date, sizeof(s_t_date));
   if (s_rhr_layer) update_display();
-  // NEW: Skip HRV if already posted for this day
-  if (persist_exists(KEY_HRV_POSTED_DATE)) {
+  // HRV belongs to its own (waking) date. Skip only the day already confirmed
+  // posted, and never wipe the other day's freshly-read HRV.
+  char hrv_date[12] = {0};
+  if (tt.hrv > 0) strncpy(hrv_date, tt.date, sizeof(hrv_date) - 1);
+  else if (y.hrv > 0) strncpy(hrv_date, y.date, sizeof(hrv_date) - 1);
+  hrv_date[sizeof(hrv_date) - 1] = '\0';
+  if (hrv_date[0] && persist_exists(KEY_HRV_POSTED_DATE)) {
     char posted_date[12];
     persist_read_string(KEY_HRV_POSTED_DATE, posted_date, sizeof(posted_date));
-    if (strcmp(posted_date, y.date) == 0 || strcmp(posted_date, tt.date) == 0) {
+    if (strcmp(posted_date, hrv_date) == 0) {
       APP_LOG(APP_LOG_LEVEL_DEBUG, "HRV already posted for %s — skipping HRV", posted_date);
-      y.hrv = 0; y.hrvSDNN = 0;
-      tt.hrv = 0; tt.hrvSDNN = 0;
+      if (strcmp(hrv_date, tt.date) == 0) { tt.hrv = 0; tt.hrvSDNN = 0; }
+      else if (strcmp(hrv_date, y.date) == 0) { y.hrv = 0; y.hrvSDNN = 0; }
     }
   }
   if (!force && y.date[0] && is_already_synced(y.date)) {
@@ -82,14 +87,11 @@ void try_daily_sync(bool force) {
       WellnessDay *py = NULL;
       if (force) py = &y;
       queue_wellness(py, &tt);
-      persist_write_string(KEY_HRV_POSTED_DATE, y.date);
       return;
     }
-    persist_write_string(KEY_HRV_POSTED_DATE, y.date);
     return;
   }
   queue_wellness(&y, &tt);
-  persist_write_string(KEY_HRV_POSTED_DATE, y.date);
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -111,10 +113,9 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   if (tick_time->tm_hour == sync_h && tick_time->tm_min == sync_m) {
     if (persist_exists(KEY_QUEUED_PENDING) && persist_read_bool(KEY_QUEUED_PENDING)) {
       char synced_date[12] = {0};
-      if (send_queued(synced_date, sizeof(synced_date))) {
-        persist_write_string(KEY_LAST_SYNC_DATE, synced_date[0] ? synced_date : s_y_date);
-      }
-      persist_write_bool(KEY_QUEUED_PENDING, false);
+      // Attempt the retry; the phone's OK reply owns clearing the pending flag
+      // and recording the sync date, so a no-phone attempt stays queued.
+      send_queued(synced_date, sizeof(synced_date));
       return;
     }
     time_t today_start = time_start_of_today();
